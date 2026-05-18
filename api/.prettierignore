@@ -1,0 +1,13 @@
+node_modules
+dist
+build
+coverage
+.next
+logs
+*.log
+src/generated
+prisma/migrations
+.env
+.env.*
+pnpm-lock.yaml
+package-lock.json

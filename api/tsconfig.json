@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    // ===== Target / Module =====
+    // ES2022 Node 18+ me supported, async stack traces clean aate hain
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+
+    // ===== Strictness (industry must-have) =====
+    "strict": true,
+    "noUncheckedIndexedAccess": true, // arr[0] → T | undefined (safer)
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true, // node_modules ki types check skip — faster builds
+
+    // ===== Interop =====
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true, // bundler-friendly (tsx/swc safe)
+
+    // ===== Build output =====
+    "outDir": "./dist",
+    "sourceMap": true, // Sentry source maps ke liye zaruri (production stack trace)
+    "declaration": false,
+    "removeComments": true,
+    "incremental": true,
+
+    // ===== Misc =====
+    "resolveJsonModule": true
+  },
+  // server.ts (root) + src/** dono include — rootDir auto-infer hoga
+  "include": ["server.ts", "src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/generated", // Prisma generated client (already typed, lint skip)
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}
