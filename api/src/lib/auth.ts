@@ -115,12 +115,12 @@ export const auth = betterAuth({
       // Password reset link bhejne se pehle callbackURL ensure karo
       // (verify ke baad /login pe redirect hoga, success message ke saath)
       const resetUrl = new URL(url);
-      if (!resetUrl.searchParams.has("callbackURL")) {
-        resetUrl.searchParams.set(
-          "callbackURL",
-          `${env.CORS_ORIGIN}/login?reset=success`,
-        );
-      }
+      // if (!resetUrl.searchParams.has("callbackURL")) {
+      resetUrl.searchParams.set(
+        "callbackURL",
+        `${env.CORS_ORIGIN}/login?reset=success`,
+      );
+      // }
       await sendPasswordResetEmail({ user, url: resetUrl.toString() });
     },
   },
@@ -135,12 +135,12 @@ export const auth = betterAuth({
     sendVerificationEmail: async ({ user, url }) => {
       // Verify ke baad frontend me dashboard pe redirect (already logged-in)
       const verifyUrl = new URL(url);
-      if (!verifyUrl.searchParams.has("callbackURL")) {
-        verifyUrl.searchParams.set(
-          "callbackURL",
-          `${env.CORS_ORIGIN}/dashboard?verified=true`,
-        );
-      }
+      // if (!verifyUrl.searchParams.has("callbackURL")) {
+      verifyUrl.searchParams.set(
+        "callbackURL",
+        `${env.CORS_ORIGIN}/dashboard?verified=true`,
+      );
+      // }
       await sendVerificationEmail({ user, url: verifyUrl.toString() });
     },
   },

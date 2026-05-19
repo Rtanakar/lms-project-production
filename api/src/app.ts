@@ -52,7 +52,7 @@ app.use(
 // Catches: /api/auth/sign-up/email, /api/auth/sign-in/social/google, etc.
 //
 // NOTE: server.ts me ab ye line nahi chahiye — yahan se handle ho raha hai.
-app.all("/api/auth/*splat", toNodeHandler(auth));
+app.all("/api/auth/{*any}", toNodeHandler(auth));
 
 // ===== 4. Body parsers =====
 // better-auth ke BAAD mount karo — baaki saare routes ke liye kaam karega.
