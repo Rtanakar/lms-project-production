@@ -10,11 +10,11 @@
 // Ye import sabse upar — order CRITICAL hai
 import "./src/lib/sentry.js";
 
-import express from "express";
-import { toNodeHandler } from "better-auth/node";
+// import express from "express";
+// import { toNodeHandler } from "better-auth/node";
 import { env } from "./src/config/env.js";
 import app from "./src/app.js";
-import { auth } from "./src/lib/auth.js";
+// import { auth } from "./src/lib/auth.js";
 import { logger } from "./src/utils/logger.js";
 import { prisma } from "./src/db/db.js";
 import { printStartupBanner } from "./src/utils/startup-banner.js";
@@ -23,10 +23,15 @@ import { printStartupBanner } from "./src/utils/startup-banner.js";
 // Auth handler ko JSON parser ke PEHLE mount karte hain — kyunki better-auth
 // raw body ko apne tarike se parse karta hai. JSON middleware pehle laga
 // diya to better-auth tut jata hai.
-app.all("/api/auth/{*any}", toNodeHandler(auth));
+//
+// Express 5 syntax (per Better Auth official docs):
+//   app.all("/api/auth/*splat", toNodeHandler(auth));
+// `*splat` = path-to-regexp v8 ka named wildcard — saare nested paths catch karta hai
+// // jaise /api/auth/sign-up/email, /api/auth/sign-in/social/google, etc.
+// app.all("/api/auth/*splat", toNodeHandler(auth));
 
-// Ab JSON parser mount — baaki routes ke liye
-app.use(express.json({ limit: "1mb" }));
+// // Ab JSON parser mount — baaki routes ke liye
+// app.use(express.json({ limit: "1mb" }));
 
 // ===== Server start =====
 const server = app.listen(env.PORT, () => {

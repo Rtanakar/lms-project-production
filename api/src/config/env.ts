@@ -37,13 +37,33 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
   // ===== Redis (Upstash) =====
+  // REDIS_URL → BullMQ (TCP via ioredis)
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
+  // REST API → Better Auth secondary storage (HTTP-based, faster cold starts)
+  UPSTASH_REDIS_REST_URL: z.string().url().optional().or(z.literal("")),
+  UPSTASH_REDIS_REST_TOKEN: z.string().optional().or(z.literal("")),
 
   // ===== Better Auth =====
   BETTER_AUTH_SECRET: z
     .string()
     .min(16, "BETTER_AUTH_SECRET must be >=16 chars"),
   BETTER_AUTH_URL: z.string().url(),
+
+  // ===== OAuth providers =====
+  // Production me sab required, dev me optional (empty string allowed)
+  GITHUB_CLIENT_ID: z.string().default(""),
+  GITHUB_CLIENT_SECRET: z.string().default(""),
+  GOOGLE_CLIENT_ID: z.string().default(""),
+  GOOGLE_CLIENT_SECRET: z.string().default(""),
+
+  // ===== Resend (email) =====
+  // Dev me optional — agar nahi set ho to emails console pe log honge
+  RESEND_API_KEY: z.string().default(""),
+  RESEND_FROM_EMAIL: z.string().email().default("noreply@example.com"),
+
+  // ===== Admin emails (comma separated) =====
+  // Ye emails first signup pe automatically ADMIN role paayenge
+  ADMIN_EMAILS: z.string().default(""),
 
   // ===== Sentry =====
   // Optional — dev me DSN na ho to bhi app chalega

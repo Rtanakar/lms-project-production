@@ -1,32 +1,42 @@
 // ============================================================================
 // express.d.ts — Express Request type augmentation
 // ============================================================================
-// Industry pattern: jab humein Request object pe custom properties chahiye
-// (jaise validated data, current user, request ID), to "declaration merging"
-// se Express.Request interface ko extend karte hain. Iss se controllers me
-// type-safe access milta hai bina any cast ke.
+// Declaration merging se Express.Request interface ko extend karte hain.
+// Iss se controllers me type-safe access milta hai bina any cast ke.
 //
-// Example:
-//   req.validated.body  → ZodInfer<typeof schema> (fully typed!)
-//   req.user            → AuthenticatedUser (better-auth se set hoga later)
+// Properties added:
+//   - req.validated  → Zod validate middleware ka output
+//   - req.user       → require-auth middleware ke baad authenticated user
+//   - req.session    → require-auth middleware ke baad session info
 // ============================================================================
+
+import type { AuthUser, Session } from "../lib/auth.js";
 
 declare global {
   namespace Express {
     interface Request {
       /**
        * Zod se validate kiya hua request data.
-       * `validate()` middleware isko set karta hai.
-       * Generic type controller me cast karke milega.
+       * `validate()` middleware set karta hai.
        */
       validated?: {
         body?: unknown;
         query?: unknown;
         params?: unknown;
       };
+
+      /**
+       * Authenticated user — `requireAuth` middleware ke baad available.
+       * Public routes me undefined hoga.
+       */
+      user?: AuthUser;
+
+      /**
+       * Active session info — `requireAuth` middleware ke baad available.
+       */
+      session?: Session;
     }
   }
 }
 
-// Empty export — TypeScript ko bata raha hai ye module hai (declaration merging ke liye zaruri)
 export {};

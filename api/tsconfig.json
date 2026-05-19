@@ -19,6 +19,10 @@
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true, // bundler-friendly (tsx/swc safe)
 
+    // ===== JSX (for React Email templates) =====
+    // React Email templates .tsx files hain — JSX support chahiye
+    "jsx": "react-jsx", // automatic runtime (no need to import React in every file)
+
     // ===== Build output =====
     "outDir": "./dist",
     "sourceMap": true, // Sentry source maps ke liye zaruri (production stack trace)
@@ -30,7 +34,7 @@
     "resolveJsonModule": true
   },
   // server.ts (root) + src/** dono include — rootDir auto-infer hoga
-  "include": ["server.ts", "src/**/*.ts"],
+  "include": ["server.ts", "src/**/*.ts", "src/**/*.tsx"],
   "exclude": [
     "node_modules",
     "dist",

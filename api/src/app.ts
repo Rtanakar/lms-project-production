@@ -4,21 +4,26 @@
 // Middleware ORDER bahut matter karta hai Express me. Standard production order:
 //   1. Security headers (helmet) — sabse pehle, har response pe lagne chahiye
 //   2. CORS — browser ke preflight ke liye early needed
-//   3. Body parsers (json/urlencoded) — routes se pehle, but auth handler ke BAAD
-//      (better-auth ka apna body parsing hai, isliye server.ts me ye order maintain hai)
-//   4. Request logger (pino-http / morgan) — har request log ho
-//   5. Routes
-//   6. 404 handler
-//   7. Error handler (sabse aakhir me — Express ka rule)
+//   3. Better Auth handler — JSON parser se PEHLE mount karna ZAROORI hai
+//      (better-auth raw body khud parse karta hai; agar JSON middleware pehle
+//       lage to better-auth tut jaata hai)
+//   4. Body parsers (json/urlencoded) — better-auth ke BAAD, baaki routes ke liye
+//   5. Request logger (morgan) — har request log ho
+//   6. Routes
+//   7. 404 handler
+//   8. Error handler (sabse aakhir me — Express ka rule)
 // ============================================================================
 
-import express from "express";
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./lib/auth.js";
+import express, { type Request, type Response } from "express";
 import helmet from "helmet";
 import cors from "cors";
 import morgan from "morgan";
 import { env, isDev } from "./config/env.js";
 import { logger } from "./utils/logger.js";
 import { errorHandler, notFoundHandler } from "./middlewares/error-handler.js";
+import authRoutes from "./routes/auth.routes.js";
 
 const app = express();
 
@@ -37,13 +42,26 @@ app.use(
   }),
 );
 
-// ===== 3. Body parsers =====
-// NOTE: server.ts me better-auth handler ke BAAD ye mounted hai (intentional).
-// Yaha app.ts ke andar bhi rakhne se koi conflict nahi, but server.ts wali
-// line authoritative hai. Yaha sirf urlencoded forms ke liye.
+// ===== 3. Better Auth handler =====
+// CRITICAL: Ye JSON parser se PEHLE mount hona chahiye.
+// Kyon? better-auth raw request body ko apne tarike se parse karta hai.
+// Agar express.json() pehle lage to body already consume ho jaati hai
+// aur better-auth ko empty/broken body milti hai.
+//
+// Express 5 syntax: `*splat` = named wildcard for path-to-regexp v8
+// Catches: /api/auth/sign-up/email, /api/auth/sign-in/social/google, etc.
+//
+// NOTE: server.ts me ab ye line nahi chahiye — yahan se handle ho raha hai.
+app.all("/api/auth/*splat", toNodeHandler(auth));
+
+// ===== 4. Body parsers =====
+// better-auth ke BAAD mount karo — baaki saare routes ke liye kaam karega.
+// JSON: REST API requests ke liye
+// urlencoded: HTML form submissions ke liye (agar kabhi chahiye)
+app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
-// ===== 4. Request logging =====
+// ===== 5. Request logging =====
 // Morgan ka output Pino me pipe kar dete hain — single log stream
 // "dev" format colored aur short, prod me "combined" (Apache-style detailed)
 app.use(
@@ -52,7 +70,7 @@ app.use(
   }),
 );
 
-// ===== 5. Routes =====
+// ===== 6. Routes =====
 // API versioning: /api/v1/... — future-proof (v2 release kar sakte ho bina break kiye)
 // http://localhost:8080/api/v1/health
 const apiBase = `/${env.API_PREFIX}/${env.API_VERSION}`;
@@ -67,15 +85,23 @@ app.get(`${apiBase}/health`, (_req, res) => {
   });
 });
 
-// TODO: Yaha feature routes mount honge jaise:
+app.get("/", (req: Request, res: Response) => {
+  res.status(200).json("Welcome to dashboard");
+});
+
+// Auth-related custom routes (/me, /update-profile, /change-password etc.)
+// Ye /api/v1/auth/* handle karta hai — better-auth ke /api/auth/* se alag hai
+app.use(`${apiBase}/auth`, authRoutes);
+
+// TODO: Future feature routes:
 // app.use(`${apiBase}/users`, userRoutes);
 // app.use(`${apiBase}/courses`, courseRoutes);
 
-// ===== 6. 404 handler =====
+// ===== 7. 404 handler =====
 // Saare routes ke BAAD — koi match nahi hua to ye chalega
 app.use(notFoundHandler);
 
-// ===== 7. Error handler =====
+// ===== 8. Error handler =====
 // SABSE LAST — Express ka rule (4-arg signature pehchanta hai)
 app.use(errorHandler);
 

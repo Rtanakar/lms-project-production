@@ -1,7 +1,12 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// ============================================================================
+// schema.prisma — Database schema (Prisma 7 + Postgres)
+// ============================================================================
+// Better Auth ke 4 required tables: User, Session, Account, Verification
+// (Better Auth docs: https://www.better-auth.com/docs/concepts/database)
+//
+// Naming convention: model PascalCase (User), table snake_case (user) via @@map
+// Industry standard hai — Postgres me lowercase table names preferred.
+// ============================================================================
 
 generator client {
   provider = "prisma-client"
@@ -12,8 +17,83 @@ datasource db {
   provider = "postgresql"
 }
 
-model Post {
-  id          String @unique @default(uuid())
-  title       String
-  description String
+// ============================================================================
+// ROLE ENUM — LMS me user types
+// ============================================================================
+// STUDENT  → default, course enroll/watch kar sakta
+// INSTRUCTOR → courses banata/manage karta
+// ADMIN    → platform admin
+
+enum Role {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+}
+
+// ============================================================================
+// Better Auth required models
+// ============================================================================
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  role          Role      @default(STUDENT)
+  sessions      Session[]
+  accounts      Account[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
 }
