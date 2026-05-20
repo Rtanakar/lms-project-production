@@ -61,6 +61,15 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().default(""),
   RESEND_FROM_EMAIL: z.string().email().default("noreply@example.com"),
 
+  // ===== Cloudflare R2 (S3-compatible storage) =====
+  // Required for: course covers/thumbs, demo videos, TipTap embedded media
+  R2_ACCOUNT_ID: z.string().min(1, "R2_ACCOUNT_ID is required"),
+  R2_ACCESS_KEY_ID: z.string().min(1, "R2_ACCESS_KEY_ID is required"),
+  R2_SECRET_ACCESS_KEY: z.string().min(1, "R2_SECRET_ACCESS_KEY is required"),
+  R2_BUCKET_NAME: z.string().min(1, "R2_BUCKET_NAME is required"),
+  // Public URL base (R2.dev domain or custom domain)
+  R2_PUBLIC_URL: z.string().url("R2_PUBLIC_URL must be a valid URL"),
+
   // ===== Admin emails (comma separated) =====
   // Ye emails first signup pe automatically ADMIN role paayenge
   ADMIN_EMAILS: z.string().default(""),

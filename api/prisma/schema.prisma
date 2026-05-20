@@ -2,10 +2,7 @@
 // schema.prisma — Database schema (Prisma 7 + Postgres)
 // ============================================================================
 // Better Auth ke 4 required tables: User, Session, Account, Verification
-// (Better Auth docs: https://www.better-auth.com/docs/concepts/database)
-//
-// Naming convention: model PascalCase (User), table snake_case (user) via @@map
-// Industry standard hai — Postgres me lowercase table names preferred.
+// LMS domain: Course, CourseModule, CourseFAQ (Phase 11.5C onwards)
 // ============================================================================
 
 generator client {
@@ -18,11 +15,8 @@ datasource db {
 }
 
 // ============================================================================
-// ROLE ENUM — LMS me user types
+// ENUMS
 // ============================================================================
-// STUDENT  → default, course enroll/watch kar sakta
-// INSTRUCTOR → courses banata/manage karta
-// ADMIN    → platform admin
 
 enum Role {
   STUDENT
@@ -30,8 +24,30 @@ enum Role {
   ADMIN
 }
 
+// Course lifecycle states — covers all marketing copy variants:
+//   DRAFT       → backend editing, not visible publicly
+//   COMING_SOON → announced, no enrollment yet
+//   UPCOMING    → enrollment open, starts in future (cohort with startDate)
+//   LIVE        → active cohort running / self-paced enrolled
+//   COMPLETED   → cohort finished (archive view, no new enrollments)
+//   ARCHIVED    → soft-deleted from listings
+enum CourseStatus {
+  DRAFT
+  COMING_SOON
+  UPCOMING
+  LIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
 // ============================================================================
-// Better Auth required models
+// Better Auth models
 // ============================================================================
 model User {
   id            String    @id
@@ -44,6 +60,9 @@ model User {
   role          Role      @default(STUDENT)
   sessions      Session[]
   accounts      Account[]
+
+  // LMS relations
+  taughtCourses Course[] @relation("CourseInstructor")
 
   @@unique([email])
   @@map("user")
@@ -96,4 +115,150 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+// ============================================================================
+// LMS — Course
+// ============================================================================
+// Designed for FULL UPDATABILITY — har field ko admin baad me change kar sakta.
+// TipTap JSON description = rich content (text, images, embedded videos).
+// R2 URLs separately stored for typed access (cover, thumb, demo video).
+//
+// PRICING: paise nahi rupee integer (display direct). Discount auto-compute hota
+// hai service layer me from price / originalPrice. Frontend ko consistent shape.
+//
+// SEO: metaTitle/metaDescription separate fields — Open Graph + Twitter cards
+// generate karne ke liye.
+//
+// STATS: studentsEnrolled, rating, ratingCount cached fields (denormalized).
+// Enrollment / Review tables update kare to ye fields recompute (background job).
+// ============================================================================
+model Course {
+  id              String  @id @default(cuid())
+  // URL slug — unique, generated from title, manually overridable
+  slug            String  @unique
+  title           String
+  subtitle        String? // short tagline shown on cards
+  // Plain-text description for SEO / search indexing
+  descriptionText String? @db.Text
+  // TipTap JSON output (rich content) — images/videos embedded via R2 URLs
+  description     Json?
+
+  // ── Marketing assets (R2 URLs) — sab updatable later ──
+  coverImageUrl String? // hero / detail page cover
+  thumbnailUrl  String? // card thumbnail (smaller)
+  demoVideoUrl  String? // marketing demo (R2 MP4)
+  // Future: when Mux migration happens
+  muxAssetId    String?
+  muxPlaybackId String?
+
+  // ── Status / classification ──
+  status CourseStatus @default(DRAFT)
+  level  CourseLevel  @default(BEGINNER)
+  tags   String[] // PG array — Postgres native
+
+  // ── Pricing (INR rupees as integer; paise NAHI) ──
+  price           Int    @default(0)
+  originalPrice   Int    @default(0)
+  // Service layer me from (price, originalPrice) compute hota:
+  //   discountPercent = round((originalPrice - price) / originalPrice * 100)
+  // Cached yaha for fast queries
+  discountPercent Int    @default(0)
+  // Optional currency (INR default; future multi-currency)
+  currency        String @default("INR")
+
+  // ── Schedule (cohort-based courses) ──
+  startDate        DateTime? // when cohort begins
+  endDate          DateTime? // when cohort ends
+  enrollmentEndsAt DateTime? // when enrollment closes
+  durationHours    Int       @default(0) // total content duration
+  durationWeeks    Int? // cohort length in weeks
+
+  // ── Highlights (updatable arrays) ──
+  // What students will build/learn — string[]
+  whatYouLearn  String[]
+  // Pre-requisites — string[]
+  prerequisites String[]
+  // Bullet points for "Includes" sidebar
+  includes      String[]
+
+  // ── SEO ──
+  metaTitle       String?
+  metaDescription String?
+  ogImageUrl      String?
+
+  // ── Stats (denormalized, recomputed by background job) ──
+  studentsEnrolled Int   @default(0)
+  rating           Float @default(0)
+  ratingCount      Int   @default(0)
+
+  // ── Instructor (relation) ──
+  instructorId String
+  instructor   User   @relation("CourseInstructor", fields: [instructorId], references: [id], onDelete: Restrict)
+
+  // ── Relations ──
+  modules CourseModule[]
+  faqs    CourseFAQ[]
+
+  // ── Audit ──
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime? // when status moved from DRAFT → public
+
+  @@index([status])
+  @@index([instructorId])
+  @@index([slug])
+  @@map("course")
+}
+
+// ============================================================================
+// CourseModule — Day/Week chapters (e.g., "Day 1: Before You Start")
+// ============================================================================
+// Lessons (videos) Phase 11.6 me add honge — abhi sirf module structure.
+// `order` se sort hota; UNIQUE per course taki same order pe 2 modules na ho.
+// ============================================================================
+model CourseModule {
+  id          String    @id @default(cuid())
+  courseId    String
+  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  // Optional label like "DAY 1", "WEEK 2" — UI me badge ban jaayega
+  label       String?
+  description String?   @db.Text
+  // Sort order — 0-indexed
+  order       Int
+  // Some modules locked till date (cohort-based drip content)
+  unlockedAt  DateTime?
+  // Free preview module (visible to non-enrolled)
+  isFree      Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // lessons CourseLesson[]  ← Phase 11.6 me add karenge
+
+  @@unique([courseId, order])
+  @@index([courseId])
+  @@map("course_module")
+}
+
+// ============================================================================
+// CourseFAQ — per-course questions
+// ============================================================================
+// Global FAQs ke alawa, har course ki apni FAQ list ho sakti (e.g., refund
+// policy, cohort schedule). Marketing page accordion ke liye.
+// ============================================================================
+model CourseFAQ {
+  id       String @id @default(cuid())
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  question String
+  answer   String @db.Text
+  order    Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courseId])
+  @@map("course_faq")
 }

@@ -32,6 +32,8 @@ import {
   responseTime,
 } from "./middlewares/security.js";
 import authRoutes from "./routes/auth.routes.js";
+import courseRoutes from "./routes/course.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 
 const app = express();
 
@@ -222,9 +224,11 @@ app.get("/", (req: Request, res: Response) => {
 // (Better Auth ke /api/auth/* se alag — woh server.ts me mounted hai)
 app.use(`${apiBase}/auth`, authRoutes);
 
-// TODO: Future feature routes
-// app.use(`${apiBase}/users`, userRoutes);
-// app.use(`${apiBase}/courses`, courseRoutes);
+// Courses — public listing/detail + instructor/admin CRUD + nested modules/FAQs
+app.use(`${apiBase}/courses`, courseRoutes);
+
+// Uploads — R2 presigned URL endpoint (TipTap images, demo videos, covers)
+app.use(`${apiBase}/uploads`, uploadRoutes);
 
 // ============================================================================
 // 11. 404 handler — saare routes ke baad
