@@ -8,7 +8,7 @@
 // Service responsibilities:
 //   - Business rules (discount compute, slug uniqueness, ownership checks)
 //   - Authorization (instructor-owner / admin gates)
-//   - Status transitions (DRAFT → publishedAt set once)
+//   - Status transitions (DRAFT → publishedAt set once, archive/restore)
 //   - Orchestration across repos
 //
 // Service does NOT:
@@ -29,6 +29,7 @@ import type {
   UpdateModuleInput,
   CreateFAQInput,
   UpdateFAQInput,
+  ArchiveCourseInput,
 } from "./course.validator.js";
 
 // ============================================================================
@@ -42,10 +43,51 @@ function computeDiscount(price: number, originalPrice: number): number {
 }
 
 /**
+ * Build full-text search WHERE clause.
+ * Empty/whitespace search → empty object (no-op in spread).
+ * Searches: title, subtitle, descriptionText, slug + tag containment.
+ */
+function buildCourseSearchWhere(q?: string): Prisma.CourseWhereInput {
+  if (!q?.trim()) return {};
+  const term = q.trim();
+  return {
+    OR: [
+      { title: { contains: term, mode: Prisma.QueryMode.insensitive } },
+      { subtitle: { contains: term, mode: Prisma.QueryMode.insensitive } },
+      {
+        descriptionText: { contains: term, mode: Prisma.QueryMode.insensitive },
+      },
+      { slug: { contains: term, mode: Prisma.QueryMode.insensitive } },
+      { tags: { has: term } },
+    ],
+  };
+}
+
+/** Resolve sort enum to Prisma orderBy. */
+function buildOrderBy(
+  sort: ListCoursesQuery["sort"],
+): Prisma.CourseOrderByWithRelationInput {
+  switch (sort) {
+    case "oldest":
+      return { createdAt: "asc" };
+    case "price-asc":
+      return { price: "asc" };
+    case "price-desc":
+      return { price: "desc" };
+    case "popular":
+      return { studentsEnrolled: "desc" };
+    case "rating":
+      return { rating: "desc" };
+    case "newest":
+    default:
+      return { createdAt: "desc" };
+  }
+}
+
+/**
  * Ownership guard reused by all write ops.
  * - ADMIN → can edit any course
  * - INSTRUCTOR → can edit only their own courses
- * - STUDENT → cannot edit (route also gates)
  */
 async function ensureCourseOwnership(
   courseId: string,
@@ -61,10 +103,10 @@ async function ensureCourseOwnership(
 }
 
 // ============================================================================
-// LIST courses
+// LIST courses — cursor + offset hybrid
 // ============================================================================
 export async function listCourses(query: ListCoursesQuery) {
-  const { status, level, tag, q, page, limit, sort } = query;
+  const { status, level, tag, q, cursor, page, limit, sort } = query;
 
   // Default visibility: hide DRAFT + ARCHIVED from public
   const statusFilter: Prisma.CourseWhereInput["status"] =
@@ -72,53 +114,42 @@ export async function listCourses(query: ListCoursesQuery) {
       ? { in: status as Prisma.EnumCourseStatusFilter["in"] }
       : { in: ["COMING_SOON", "UPCOMING", "LIVE", "COMPLETED"] };
 
+  // Compose WHERE — spread pattern keeps undefined filters out of the query
   const where: Prisma.CourseWhereInput = {
     status: statusFilter,
     ...(level && { level }),
     ...(tag && { tags: { has: tag } }),
-    ...(q && {
-      OR: [
-        { title: { contains: q, mode: Prisma.QueryMode.insensitive } },
-        { subtitle: { contains: q, mode: Prisma.QueryMode.insensitive } },
-      ],
-    }),
+    ...buildCourseSearchWhere(q),
   };
 
-  const orderBy: Prisma.CourseOrderByWithRelationInput = (() => {
-    switch (sort) {
-      case "oldest":
-        return { createdAt: "asc" };
-      case "price-asc":
-        return { price: "asc" };
-      case "price-desc":
-        return { price: "desc" };
-      case "popular":
-        return { studentsEnrolled: "desc" };
-      case "rating":
-        return { rating: "desc" };
-      case "newest":
-      default:
-        return { createdAt: "desc" };
-    }
-  })();
+  const { items, nextCursor, hasNextPage, totalCount } =
+    await courseRepository.list({
+      where,
+      orderBy: buildOrderBy(sort),
+      cursor,
+      limit,
+      page,
+    });
 
-  const skip = (page - 1) * limit;
-  const { items, total } = await courseRepository.list({
-    where,
-    orderBy,
-    skip,
-    take: limit,
-  });
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
 
   return {
     items,
+    // New shape — cursor + offset hybrid (PROJECT_CONTEXT §6 pattern)
+    nextCursor,
+    totalCount,
+    totalPages,
+    hasNextPage,
+    // cursor mode → previous exists if cursor sent; offset mode → page > 1
+    hasPreviousPage: Boolean(cursor) || page > 1,
+    // Legacy `pagination` object — kept for back-compat with existing frontend
     pagination: {
       page,
       limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-      hasNext: skip + items.length < total,
-      hasPrev: page > 1,
+      total: totalCount,
+      totalPages,
+      hasNext: hasNextPage,
+      hasPrev: Boolean(cursor) || page > 1,
     },
   };
 }
@@ -151,8 +182,6 @@ export async function createCourse(input: CreateCourseInput, authorId: string) {
 
   const discountPercent = computeDiscount(input.price, input.originalPrice);
 
-  // Prisma's CourseCreateInput requires `instructor` relation (not instructorId)
-  // when using a strict adapter. Convert id → connect.
   const data: Prisma.CourseCreateInput = {
     slug,
     title: input.title,
@@ -195,12 +224,7 @@ export async function updateCourse(
   input: UpdateCourseInput,
   user: { id: string; role: string },
 ) {
-  const existing = await courseRepository.findById(id);
-  if (!existing) throw new NotFound("Course not found", "COURSE_NOT_FOUND");
-
-  if (user.role !== "ADMIN" && existing.instructorId !== user.id) {
-    throw new Forbidden("You don't own this course", "NOT_OWNER");
-  }
+  const existing = await ensureCourseOwnership(id, user);
 
   // Slug uniqueness if changing
   let newSlug = existing.slug;
@@ -279,7 +303,55 @@ export async function updateCourse(
 }
 
 // ============================================================================
-// DELETE course — ADMIN only (cascade to modules + FAQs via Prisma onDelete)
+// ARCHIVE course — soft delete via status flip (INSTRUCTOR owner / ADMIN)
+// ============================================================================
+// Why archive instead of hard delete?
+//   - Preserves enrollments, ratings, analytics history
+//   - Reversible (restore endpoint flips back to DRAFT)
+//   - Hidden from public list (statusFilter excludes ARCHIVED by default)
+//
+// `reason` is optional — surfaced to audit log later (not stored on Course
+// model yet; would need an AuditLog table).
+// ============================================================================
+export async function archiveCourse(
+  id: string,
+  user: { id: string; role: string },
+  _input: ArchiveCourseInput = {},
+) {
+  const existing = await ensureCourseOwnership(id, user);
+
+  // No-op short circuit
+  if (existing.status === "ARCHIVED") {
+    throw new BadRequest("Course is already archived", "ALREADY_ARCHIVED");
+  }
+
+  return courseRepository.update(id, { status: "ARCHIVED" });
+}
+
+// ============================================================================
+// RESTORE archived course → DRAFT (INSTRUCTOR owner / ADMIN)
+// ============================================================================
+// Restored course goes back to DRAFT (not previous status) — owner must
+// re-publish explicitly to avoid surprise visibility flips.
+// ============================================================================
+export async function restoreCourse(
+  id: string,
+  user: { id: string; role: string },
+) {
+  const existing = await ensureCourseOwnership(id, user);
+
+  if (existing.status !== "ARCHIVED") {
+    throw new BadRequest("Course is not archived", "NOT_ARCHIVED");
+  }
+
+  return courseRepository.update(id, { status: "DRAFT" });
+}
+
+// ============================================================================
+// DELETE course — ADMIN only (hard delete, cascades to modules + FAQs)
+// ============================================================================
+// Use archive for reversible "remove from listing". Hard delete should be
+// rare — accidental deletes are unrecoverable.
 // ============================================================================
 export async function deleteCourse(id: string, user: { role: string }) {
   if (user.role !== "ADMIN") {

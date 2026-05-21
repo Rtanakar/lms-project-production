@@ -117,7 +117,10 @@ export const updateCourseSchema = z
 export type UpdateCourseInput = z.infer<typeof updateCourseSchema>;
 
 // ============================================================================
-// LIST query
+// LIST query — cursor + offset hybrid pagination
+// ============================================================================
+// New clients: send `cursor + limit` for stable next-page (no drift on inserts)
+// Old clients: send `page + limit` — offset fallback works as before.
 // ============================================================================
 export const listCoursesQuerySchema = z.object({
   status: z
@@ -130,6 +133,10 @@ export const listCoursesQuerySchema = z.object({
   tag: z.string().max(40).optional(),
   q: z.string().max(80).optional(),
 
+  // ── Cursor pagination (preferred for next-page) ──
+  cursor: z.string().min(1).max(40).optional(),
+
+  // ── Offset pagination (back-compat + "jump to page N" UX) ──
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(12),
 
@@ -139,6 +146,15 @@ export const listCoursesQuerySchema = z.object({
 });
 
 export type ListCoursesQuery = z.infer<typeof listCoursesQuerySchema>;
+
+// ============================================================================
+// Archive — optional reason for audit trail
+// ============================================================================
+export const archiveCourseSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+export type ArchiveCourseInput = z.infer<typeof archiveCourseSchema>;
 
 // ============================================================================
 // Module

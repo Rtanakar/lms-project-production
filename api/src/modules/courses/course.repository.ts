@@ -9,25 +9,60 @@
 // Aggregate root pattern: Course is the root, Module + FAQ are children.
 // ONE repository handles all three (instead of 3 separate repos) — keeps
 // related operations cohesive.
-//
-// Why function-object pattern (not class)?
-//   - Idiomatic TS (no `this` confusion)
-//   - Tree-shakeable
-//   - Same DX as class but lighter
 // ============================================================================
 
 import { prisma } from "../../db/db.js";
-import type { Prisma } from "../../generated/prisma/client.js";
+import { Prisma } from "../../generated/prisma/client.js";
 
 // ============================================================================
-// Reusable include shapes — keeps service code lean
+// COURSE_LIST_SELECT — explicit select for list rows (Netflix/Uber pattern)
 // ============================================================================
-const summaryInclude = {
+// `satisfies Prisma.CourseSelect` → compile-time check, no `include` leakage.
+// Derived row type via `GetPayload<{ select: typeof ... }>` — single source of
+// truth, refactors propagate automatically.
+// ============================================================================
+const COURSE_LIST_SELECT = {
+  id: true,
+  slug: true,
+  title: true,
+  subtitle: true,
+  descriptionText: true,
+  coverImageUrl: true,
+  thumbnailUrl: true,
+  demoVideoUrl: true,
+  ogImageUrl: true,
+  status: true,
+  level: true,
+  tags: true,
+  price: true,
+  originalPrice: true,
+  discountPercent: true,
+  currency: true,
+  startDate: true,
+  endDate: true,
+  enrollmentEndsAt: true,
+  durationHours: true,
+  durationWeeks: true,
+  whatYouLearn: true,
+  prerequisites: true,
+  includes: true,
+  studentsEnrolled: true,
+  rating: true,
+  ratingCount: true,
+  publishedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  instructorId: true,
   instructor: {
     select: { id: true, name: true, image: true },
   },
-} satisfies Prisma.CourseInclude;
+} as const satisfies Prisma.CourseSelect;
 
+export type CourseListRow = Prisma.CourseGetPayload<{
+  select: typeof COURSE_LIST_SELECT;
+}>;
+
+// Detail include — full relations for /:slug
 const detailInclude = {
   instructor: {
     select: { id: true, name: true, image: true, email: true },
@@ -41,29 +76,70 @@ const detailInclude = {
 } satisfies Prisma.CourseInclude;
 
 // ============================================================================
+// Cursor + offset hybrid page fetcher
+// ============================================================================
+// `take + 1` trick:
+//   - Fetch one extra row to detect hasNextPage without extra query
+//   - If extra row present → drop it from items, use last visible id as nextCursor
+//   - If cursor provided → skip 1 (Prisma cursor is inclusive)
+//   - If no cursor + page > 1 → offset fallback for "jump to page N" UX
+//
+// `id` as secondary sort: createdAt collisions (bulk imports) get stable order,
+// which cursor pagination requires for correctness.
+// ============================================================================
+async function findPage(args: {
+  where: Prisma.CourseWhereInput;
+  orderBy: Prisma.CourseOrderByWithRelationInput;
+  cursor?: string | null;
+  limit: number;
+  page: number;
+}) {
+  const { where, orderBy, cursor, limit, page } = args;
+
+  // Inject `id` as final tiebreaker so cursor pagination is deterministic.
+  const stableOrderBy: Prisma.CourseOrderByWithRelationInput[] = [
+    orderBy,
+    { id: "desc" },
+  ];
+
+  const rows = await prisma.course.findMany({
+    where,
+    orderBy: stableOrderBy,
+    take: limit + 1,
+    ...(cursor
+      ? { cursor: { id: cursor }, skip: 1 }
+      : page > 1
+        ? { skip: (page - 1) * limit }
+        : {}),
+    select: COURSE_LIST_SELECT,
+  });
+
+  const hasNextPage = rows.length > limit;
+  const items = (hasNextPage ? rows.slice(0, limit) : rows) as CourseListRow[];
+  const nextCursor = hasNextPage ? (items.at(-1)?.id ?? null) : null;
+
+  return { items, nextCursor, hasNextPage };
+}
+
+// ============================================================================
 // Course repository
 // ============================================================================
 export const courseRepository = {
   // ─── Course ──────────────────────────────────────────────────────────────
 
-  /** List courses with filters, sort, pagination. Returns rows + count parallel. */
+  /** Cursor+offset hybrid page fetch — parallel with count for totalPages. */
   async list(args: {
     where: Prisma.CourseWhereInput;
     orderBy: Prisma.CourseOrderByWithRelationInput;
-    skip: number;
-    take: number;
+    cursor?: string | null;
+    limit: number;
+    page: number;
   }) {
-    const [items, total] = await Promise.all([
-      prisma.course.findMany({
-        where: args.where,
-        orderBy: args.orderBy,
-        skip: args.skip,
-        take: args.take,
-        include: summaryInclude,
-      }),
+    const [pageData, totalCount] = await Promise.all([
+      findPage(args),
       prisma.course.count({ where: args.where }),
     ]);
-    return { items, total };
+    return { ...pageData, totalCount };
   },
 
   /** Fetch by primary key (no relations) */
@@ -90,7 +166,7 @@ export const courseRepository = {
   create(data: Prisma.CourseCreateInput) {
     return prisma.course.create({
       data,
-      include: summaryInclude,
+      select: COURSE_LIST_SELECT,
     });
   },
 
@@ -98,7 +174,7 @@ export const courseRepository = {
     return prisma.course.update({
       where: { id },
       data,
-      include: summaryInclude,
+      select: COURSE_LIST_SELECT,
     });
   },
 

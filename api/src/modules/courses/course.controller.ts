@@ -12,6 +12,7 @@ import type {
   UpdateModuleInput,
   CreateFAQInput,
   UpdateFAQInput,
+  ArchiveCourseInput,
 } from "./course.validator.js";
 
 // ============================================================================
@@ -85,7 +86,48 @@ export async function updateCourse(
 }
 
 // ============================================================================
-// DELETE — DELETE /api/v1/courses/:id (admin only)
+// ARCHIVE — POST /api/v1/courses/:id/archive (owner / admin)
+// ============================================================================
+// Soft delete via status flip — preserves enrollments + analytics, reversible.
+// ============================================================================
+export async function archiveCourse(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const { id } = req.validated!.params as { id: string };
+    const input = (req.validated?.body ?? {}) as ArchiveCourseInput;
+    const user = req.user! as { id: string; role: string };
+    const course = await courseService.archiveCourse(id, user, input);
+    res.json({ success: true, data: course });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================================
+// RESTORE — POST /api/v1/courses/:id/restore (owner / admin)
+// ============================================================================
+// Restores ARCHIVED → DRAFT. Owner must re-publish explicitly.
+// ============================================================================
+export async function restoreCourse(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const { id } = req.validated!.params as { id: string };
+    const user = req.user! as { id: string; role: string };
+    const course = await courseService.restoreCourse(id, user);
+    res.json({ success: true, data: course });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ============================================================================
+// DELETE — DELETE /api/v1/courses/:id (admin only — HARD delete)
 // ============================================================================
 export async function deleteCourse(
   req: Request,

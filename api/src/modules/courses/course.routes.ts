@@ -18,6 +18,7 @@ import {
   slugParamSchema,
   idParamSchema,
   courseAndChildParamSchema,
+  archiveCourseSchema,
 } from "./course.validator.js";
 import * as courseController from "./course.controller.js";
 
@@ -54,6 +55,26 @@ router.patch(
   validate({ params: idParamSchema, body: updateCourseSchema }),
   courseController.updateCourse,
 );
+
+// ─── Archive / Restore (owner / admin — soft delete via status flip) ────────
+
+router.post(
+  "/:id/archive",
+  requireAuth,
+  requireRole("INSTRUCTOR", "ADMIN"),
+  validate({ params: idParamSchema, body: archiveCourseSchema }),
+  courseController.archiveCourse,
+);
+
+router.post(
+  "/:id/restore",
+  requireAuth,
+  requireRole("INSTRUCTOR", "ADMIN"),
+  validate({ params: idParamSchema }),
+  courseController.restoreCourse,
+);
+
+// ─── Hard delete (ADMIN only — irreversible, cascades modules + FAQs) ───────
 
 router.delete(
   "/:id",
