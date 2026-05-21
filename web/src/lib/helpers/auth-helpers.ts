@@ -9,23 +9,30 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { env } from "@/lib/env";
 
+// Exported for use across the app (sidebar, header, profile dropdown, etc.)
+export type Role = "STUDENT" | "INSTRUCTOR" | "ADMIN";
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  image?: string | null;
+  role: Role;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthSession {
+  id: string;
+  token: string;
+  expiresAt: string;
+  userId: string;
+}
+
 interface ServerSession {
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    emailVerified: boolean;
-    image?: string | null;
-    role: "STUDENT" | "INSTRUCTOR" | "ADMIN";
-    createdAt: string;
-    updatedAt: string;
-  };
-  session: {
-    id: string;
-    token: string;
-    expiresAt: string;
-    userId: string;
-  };
+  user: AuthUser;
+  session: AuthSession;
 }
 
 export async function getServerSession(): Promise<ServerSession | null> {
