@@ -1,18 +1,9 @@
 // ============================================================================
 // course.controller.ts — HTTP layer (thin — delegates to service)
 // ============================================================================
-// Industry pattern:
-//   - Controllers: HTTP request/response shape only
-//   - Services: business logic
-//   - Validators: Zod schemas
-//
-// Response envelope (consistent across app):
-//   { success: true, data: ... }
-//   { success: false, error: { code, message } }
-// ============================================================================
 
 import type { Request, Response, NextFunction } from "express";
-import * as courseService from "../services/course.service.js";
+import * as courseService from "./course.service.js";
 import type {
   CreateCourseInput,
   UpdateCourseInput,
@@ -21,10 +12,10 @@ import type {
   UpdateModuleInput,
   CreateFAQInput,
   UpdateFAQInput,
-} from "../validators/course.validator.js";
+} from "./course.validator.js";
 
 // ============================================================================
-// GET /api/v1/courses — public listing
+// LIST — GET /api/v1/courses
 // ============================================================================
 export async function listCourses(
   req: Request,
@@ -41,7 +32,7 @@ export async function listCourses(
 }
 
 // ============================================================================
-// GET /api/v1/courses/:slug — public detail
+// GET BY SLUG — GET /api/v1/courses/:slug
 // ============================================================================
 export async function getCourseBySlug(
   req: Request,
@@ -58,7 +49,7 @@ export async function getCourseBySlug(
 }
 
 // ============================================================================
-// POST /api/v1/courses — instructor/admin create
+// CREATE — POST /api/v1/courses
 // ============================================================================
 export async function createCourse(
   req: Request,
@@ -75,7 +66,7 @@ export async function createCourse(
 }
 
 // ============================================================================
-// PATCH /api/v1/courses/:id — instructor-owner / admin update
+// UPDATE — PATCH /api/v1/courses/:id
 // ============================================================================
 export async function updateCourse(
   req: Request,
@@ -94,7 +85,7 @@ export async function updateCourse(
 }
 
 // ============================================================================
-// DELETE /api/v1/courses/:id — admin only
+// DELETE — DELETE /api/v1/courses/:id (admin only)
 // ============================================================================
 export async function deleteCourse(
   req: Request,

@@ -1,29 +1,12 @@
 // ============================================================================
-// course.routes.ts — Course endpoints (public list/detail + admin CRUD)
+// course.routes.ts — Course endpoints (public list/detail + instructor/admin CRUD)
 // ============================================================================
 // Mounted at: /api/v1/courses
-//
-// Public:
-//   GET    /                       → list with filters/search/sort
-//   GET    /:slug                  → detail by slug
-//
-// Instructor / Admin:
-//   POST   /                       → create
-//   PATCH  /:id                    → update
-//   POST   /:id/modules            → create module
-//   PATCH  /:id/modules/:childId   → update module
-//   DELETE /:id/modules/:childId   → delete module
-//   POST   /:id/faqs               → create FAQ
-//   PATCH  /:id/faqs/:childId      → update FAQ
-//   DELETE /:id/faqs/:childId      → delete FAQ
-//
-// Admin only:
-//   DELETE /:id                    → delete course
 // ============================================================================
 
 import { Router } from "express";
-import { requireAuth, requireRole } from "../middlewares/require-auth.js";
-import { validate } from "../middlewares/validate.js";
+import { requireAuth, requireRole } from "../../middlewares/require-auth.js";
+import { validate } from "../../middlewares/validate.js";
 import {
   createCourseSchema,
   updateCourseSchema,
@@ -35,34 +18,27 @@ import {
   slugParamSchema,
   idParamSchema,
   courseAndChildParamSchema,
-} from "../validators/course.validator.js";
-import * as courseController from "../controllers/course.controller.js";
+} from "./course.validator.js";
+import * as courseController from "./course.controller.js";
 
 const router = Router();
 
-// ============================================================================
-// Public routes
-// ============================================================================
+// ─── Public ──────────────────────────────────────────────────────────────────
 
-// GET /api/v1/courses?status=LIVE&level=BEGINNER&q=react&page=1&limit=12&sort=popular
 router.get(
   "/",
   validate({ query: listCoursesQuerySchema }),
   courseController.listCourses,
 );
 
-// GET /api/v1/courses/:slug
 router.get(
   "/:slug",
   validate({ params: slugParamSchema }),
   courseController.getCourseBySlug,
 );
 
-// ============================================================================
-// Authenticated routes (INSTRUCTOR or ADMIN)
-// ============================================================================
+// ─── INSTRUCTOR / ADMIN ──────────────────────────────────────────────────────
 
-// POST /api/v1/courses
 router.post(
   "/",
   requireAuth,
@@ -71,7 +47,6 @@ router.post(
   courseController.createCourse,
 );
 
-// PATCH /api/v1/courses/:id
 router.patch(
   "/:id",
   requireAuth,
@@ -80,7 +55,6 @@ router.patch(
   courseController.updateCourse,
 );
 
-// DELETE /api/v1/courses/:id — admin only (additional check in service)
 router.delete(
   "/:id",
   requireAuth,
@@ -89,9 +63,8 @@ router.delete(
   courseController.deleteCourse,
 );
 
-// ============================================================================
-// Module sub-resource
-// ============================================================================
+// ─── Modules ─────────────────────────────────────────────────────────────────
+
 router.post(
   "/:id/modules",
   requireAuth,
@@ -116,9 +89,8 @@ router.delete(
   courseController.deleteModule,
 );
 
-// ============================================================================
-// FAQ sub-resource
-// ============================================================================
+// ─── FAQs ────────────────────────────────────────────────────────────────────
+
 router.post(
   "/:id/faqs",
   requireAuth,

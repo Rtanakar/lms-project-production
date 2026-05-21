@@ -31,9 +31,10 @@ import {
   requestId,
   responseTime,
 } from "./middlewares/security.js";
-import authRoutes from "./routes/auth.routes.js";
-import courseRoutes from "./routes/course.routes.js";
-import uploadRoutes from "./routes/upload.routes.js";
+// ─── Feature modules (Path B — NestJS-style) ───
+import authRoutes from "./modules/auth/auth.routes.js";
+import courseRoutes from "./modules/courses/course.routes.js";
+import uploadRoutes from "./modules/uploads/upload.routes.js";
 
 const app = express();
 
