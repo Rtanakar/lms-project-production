@@ -5,7 +5,8 @@
 // import. Order matters:
 //   1. ThemeProvider (outermost) — theme class root html pe set
 //   2. QueryProvider — sab queries iske andar
-//   3. Toaster (sonner) — toast notifications, sab pages me available
+//   3. NuqsAdapter — URL search params
+//   4. TooltipProvider — radix tooltip context
 // ============================================================================
 
 "use client";

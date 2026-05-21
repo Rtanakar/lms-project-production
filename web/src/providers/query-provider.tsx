@@ -9,10 +9,7 @@
 
 "use client";
 
-import {
-  QueryClientProvider,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useState } from "react";
 import { getQueryClient } from "@/lib/query-client";
@@ -28,7 +25,10 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       {children}
       {/* Dev-only devtools — prod bundle se tree-shake ho jaata hai */}
       {process.env.NODE_ENV === "development" && (
-        <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-right" />
+        <ReactQueryDevtools
+          initialIsOpen={false}
+          buttonPosition="bottom-right"
+        />
       )}
     </QueryClientProvider>
   );

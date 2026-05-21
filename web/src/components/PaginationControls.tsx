@@ -21,10 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PAGINATION } from "@/config/constants";
 import { cn } from "@/lib/utils";
 
+// 10 pages se zyada ho to dropdown annoying — input box use karo
+// (GitHub, Linear, Vercel pattern)
 const DROPDOWN_PAGE_THRESHOLD = 10;
-const DEFAULT_PAGE = 1;
 
 interface PaginationControlsProps {
   page: number;
@@ -60,8 +62,8 @@ export function PaginationControls({
   className,
 }: PaginationControlsProps) {
   const safePage = Math.min(
-    Math.max(page, DEFAULT_PAGE),
-    Math.max(totalPages, DEFAULT_PAGE),
+    Math.max(page, PAGINATION.DEFAULT_PAGE),
+    Math.max(totalPages, PAGINATION.DEFAULT_PAGE),
   );
   const pageNumbers = getPageNumbers(safePage, totalPages);
   const useInput = totalPages > DROPDOWN_PAGE_THRESHOLD;
@@ -189,7 +191,10 @@ function PageDropdown({
           sideOffset={4}
           className="max-h-60 min-w-16"
         >
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+          {Array.from(
+            { length: totalPages },
+            (_, i) => i + PAGINATION.DEFAULT_PAGE,
+          ).map((p) => (
             <SelectItem key={p} value={String(p)} className="text-xs">
               {p}
             </SelectItem>
@@ -225,7 +230,11 @@ function PageInput({
 
   const commit = (raw: string) => {
     const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed >= 1 && parsed <= totalPages) {
+    if (
+      !isNaN(parsed) &&
+      parsed >= PAGINATION.DEFAULT_PAGE &&
+      parsed <= totalPages
+    ) {
       onPageChange(parsed);
     } else {
       setValue(String(page)); // reset on invalid
@@ -237,7 +246,7 @@ function PageInput({
       <span className="text-xs text-white/55">Page</span>
       <input
         type="number"
-        min={1}
+        min={PAGINATION.DEFAULT_PAGE}
         max={totalPages}
         value={value}
         disabled={isFetching}
@@ -256,7 +265,7 @@ function PageInput({
           }
           if (e.key === "ArrowDown") {
             e.preventDefault();
-            const prev = Math.max(page - 1, 1);
+            const prev = Math.max(page - 1, PAGINATION.DEFAULT_PAGE);
             setValue(String(prev));
             onPageChange(prev);
           }

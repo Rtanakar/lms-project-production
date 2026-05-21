@@ -14,6 +14,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Providers } from "@/providers/providers";
 import { Toaster } from "sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -55,7 +56,9 @@ export default function RootLayout({
           "min-h-screen bg-background font-sans text-foreground antialiased",
         )}
       >
-        <Providers>{children}</Providers>
+        <Providers>
+          <TooltipProvider>{children}</TooltipProvider>
+        </Providers>
 
         {/* Branded toaster — orange brand + cream surface, mirrors emailTheme */}
         <Toaster

@@ -132,9 +132,10 @@ app/
   courses/
     page.tsx                 ← Sheryians-style public listing
   dashboard/
-    layout.tsx               ← ⭐ NEW — server layout (auth check + sidebar provider + CurrentUserProvider)
-    page.tsx                 ← ⭐ NEW — role-aware home (stat cards + quick actions)
-    courses/                 ← TBD — D2 (admin course list with nuqs + TanStack Query)
+    layout.tsx               ← server layout (auth check + sidebar provider + CurrentUserProvider)
+    page.tsx                 ← role-aware home (stat cards + quick actions)
+  courses/
+    page.tsx                 ← ⭐ admin courses (server prefetch + Suspense + ErrorBoundary)
 components/
   marketing/
     TopNav.tsx               ← sticky pill nav with useSession()
@@ -162,23 +163,42 @@ features/
       ResetPasswordForm.tsx
       VerifyEmailClient.tsx
   courses/
-    types.ts                 ← CourseSummary / CourseDetail types
-    mock-data.ts             ← 6 sample courses (will be replaced by API in D2/E)
+    types.ts                 ← CourseListItem / pagination types
+    mock-data.ts             ← 6 sample courses (legacy public listing)
+    api/
+      courses-api.ts         ← REST fetchers (list/detail/create/update/delete)
+      use-courses.ts         ← TanStack Query hooks + courseKeys factory
     components/
+      AdminCoursesView.tsx   ← ⭐ 4 exports: Container / Loading / Error / Content
+      AdminCoursesSearch.tsx ← search + filter chips
+      AdminCoursesTable.tsx  ← row actions + skeleton
       CourseCard.tsx
       CoursesGrid.tsx
       ComparisonSection.tsx
       FAQSection.tsx
       CTASection.tsx
+    hooks/
+      use-courses-params.ts  ← nuqs client hook
+      use-courses-search.ts  ← debounced search (400ms)
+    server/
+      params-loader.ts       ← ⭐ single-file nuqs schema (courseParams + courseParamsCache)
+      prefetch.ts            ← ⭐ server prefetch with forwarded cookies
 hooks/
   use-mobile.ts
 lib/
   auth-client.ts             ← better-auth/react client + inferAdditionalFields
   env.ts                     ← NEXT_PUBLIC_* env validation
   utils.ts                   ← cn() helper
+  api-client.ts              ← ⭐ typed fetch wrapper + envelope unwrap + server-cookie support
+  api.ts                     ← (legacy — superseded by api-client.ts)
+  query-client.ts            ← shared QueryClient factory + superjson dehydrate/hydrate
+  query-keys.ts              ← centralized query-key factory
+  hydrate-client.tsx         ← ⭐ HydrateClient (HydrationBoundary wrapper for RSC)
   helpers/
     auth-helpers.ts          ← server-side getServerSession / requireAuth / requireUnauth / requireRole
                                ⭐ EXPORTS: AuthUser, Role, AuthSession types
+config/
+  constants.ts               ← PAGINATION + STALE_TIME shared constants
 ```
 
 ---
@@ -310,7 +330,43 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 - `app.disable("x-powered-by")`, `app.set("etag", false)`, `app.set("trust proxy", 1)` in prod
 - CORS exposedHeaders: X-Request-Id, Set-Cookie
 
-### ✅ Phase D1 (web) — Dashboard shell ⭐ LATEST
+### ✅ Phase 11.5D' (api) — Courses backend Netflix/Uber-grade upgrade ⭐ LATEST
+
+- **Cursor + offset hybrid pagination** in `course.repository.ts`:
+  - `COURSE_LIST_SELECT satisfies Prisma.CourseSelect` + derived `CourseListRow` type
+  - `findPage()` helper — `take + 1` trick, `id` as secondary sort for cursor stability
+  - `cursor + skip:1` cursor mode, `skip: (page-1)*limit` offset fallback
+- **`buildCourseSearchWhere(q)`** extracted helper — 5-field OR (title, subtitle, descriptionText, slug, tags-has)
+- **3-tier delete strategy**:
+  - `POST /:id/archive` — soft delete via status flip (INSTRUCTOR owner / ADMIN), preserves enrollments + analytics, reversible
+  - `POST /:id/restore` — `ARCHIVED → DRAFT` (re-publish explicit)
+  - `DELETE /:id` — hard delete (ADMIN only, cascades modules + FAQs)
+- List response shape: `{ items, nextCursor, totalCount, totalPages, hasNextPage, hasPreviousPage, pagination }` (legacy `pagination` retained for back-compat)
+
+### ✅ Phase D2 (web) — Admin courses page (server prefetch + Suspense) ⭐ LATEST
+
+- `app/courses/page.tsx` — server component pattern (Netflix/Vercel/Linear REST equivalent of tRPC HydrateClient flow):
+  ```tsx
+  <AdminCoursesContainer>
+    <HydrateClient>
+      <ErrorBoundary FallbackComponent={AdminCoursesError}>
+        <Suspense fallback={<AdminCoursesLoading />}>
+          <AdminCoursesContent /> // useSuspenseQuery reads hydrated cache
+        </Suspense>
+      </ErrorBoundary>
+    </HydrateClient>
+  </AdminCoursesContainer>
+  ```
+- `lib/hydrate-client.tsx` — generic `HydrateClient` wrapper around `HydrationBoundary` + `dehydrate(getQueryClient())`
+- `features/courses/server/prefetch.ts` — `prefetchCourses(query)` with forwarded cookies (server fetch doesn't auto-send browser cookies)
+- `lib/api-client.ts` — added optional `cookie` param for server-side calls
+- `providers/providers.tsx` — aligned with shared `getQueryClient` from `lib/query-client.ts` (superjson serializer matches server prefetch)
+- `features/courses/components/AdminCoursesView.tsx` — 4 named exports: `AdminCoursesContainer` (chrome) / `AdminCoursesLoading` (skeleton) / `AdminCoursesError` (retry fallback) / `AdminCoursesContent` (`useSuspenseQuery`)
+- `features/courses/server/params-loader.ts` — single-file nuqs schema (industry pattern — Linear/Vercel/Stripe) exports `courseParams` + `courseParamsCache`, includes cursor + limit fields
+- `features/courses/types.ts` — `CourseListResponse` extended with optional `nextCursor`, `totalCount`, `hasNextPage`, `hasPreviousPage` (back-compat with `pagination`)
+- `components/PaginationControls.tsx` — now constants-driven via `PAGINATION.DEFAULT_PAGE` from `@/config/constants`
+
+### ✅ Phase D1 (web) — Dashboard shell
 
 - `app/dashboard/layout.tsx` — server layout with auth check + cookie-based sidebar state + CurrentUserProvider seed
 - `components/dashboard/DashboardSidebar.tsx` — role-based nav + brand mark + bottom profile dropdown (Claude-style) + sign-out + LMS orange theme
@@ -353,10 +409,10 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 ### Courses (public)
 
-| Method | Path                    | Notes                                                                                             |
-| ------ | ----------------------- | ------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/courses`       | `?status=LIVE,UPCOMING&level=...&tag=...&q=...&page=1&limit=12&sort=newest\|popular\|rating\|...` |
-| GET    | `/api/v1/courses/:slug` | full detail (course + instructor + modules ordered + FAQs ordered)                                |
+| Method | Path                    | Notes                                                                                                                                |
+| ------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/api/v1/courses`       | `?status=LIVE,UPCOMING&level=...&tag=...&q=...&page=1&limit=12&cursor=<id>&sort=newest\|popular\|rating\|...` — cursor+offset hybrid |
+| GET    | `/api/v1/courses/:slug` | full detail (course + instructor + modules ordered + FAQs ordered)                                                                   |
 
 ### Courses (INSTRUCTOR / ADMIN)
 
@@ -371,11 +427,18 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 | PATCH  | `/api/v1/courses/:id/faqs/:childId`    | update FAQ                                   |
 | DELETE | `/api/v1/courses/:id/faqs/:childId`    | delete FAQ                                   |
 
+### Courses (INSTRUCTOR owner / ADMIN — soft delete)
+
+| Method | Path                          | Body                  | Notes                                       |
+| ------ | ----------------------------- | --------------------- | ------------------------------------------- |
+| POST   | `/api/v1/courses/:id/archive` | `{ reason?: string }` | status → ARCHIVED (reversible, soft delete) |
+| POST   | `/api/v1/courses/:id/restore` | —                     | ARCHIVED → DRAFT                            |
+
 ### Courses (ADMIN only)
 
-| Method | Path                  | Notes                          |
-| ------ | --------------------- | ------------------------------ |
-| DELETE | `/api/v1/courses/:id` | cascade deletes modules + FAQs |
+| Method | Path                  | Notes                                         |
+| ------ | --------------------- | --------------------------------------------- |
+| DELETE | `/api/v1/courses/:id` | HARD delete — cascades modules + FAQs (rare!) |
 
 ### Uploads (INSTRUCTOR / ADMIN)
 
@@ -527,8 +590,47 @@ NEVER re-declare `Request` in feature files — central augmentation only.
 - Default: cursor pagination for stable next-page (no drift on inserts)
 - Fallback: offset pagination for "jump to page N" UX (numbered pagination)
 - `PaginationControls` component: dropdown for ≤10 pages, number input for >10 pages (industry standard)
-- Server hooks return `{ items, nextCursor, totalCount, totalPages, hasNextPage, hasPreviousPage }`
+- Server hooks return `{ items, nextCursor, totalCount, totalPages, hasNextPage, hasPreviousPage, pagination }`
 - Client hook tracks `cursorHistory[]` for "previous" support
+- Backend repository: `take + 1` trick → no extra count for hasNextPage; `id` as secondary sort for cursor stability; cursor mode uses `cursor + skip:1`, offset mode uses `skip: (page-1)*limit`
+
+### ⭐ Server-prefetch + Suspense pattern (Netflix/Vercel/Linear)
+
+For dashboard pages that need fast first-paint with no loading spinner:
+
+```tsx
+// page.tsx (server component)
+await requireRole("INSTRUCTOR", "ADMIN");
+const params = await xxxParamsCache.parse(searchParams);
+prefetchXxx(apiQuery); // fire-and-forget — Suspense waits
+
+return (
+  <XxxContainer>
+    {" "}
+    {/* layout chrome — renders instantly */}
+    <HydrateClient>
+      <ErrorBoundary FallbackComponent={XxxError}>
+        <Suspense fallback={<XxxLoading />}>
+          <XxxContent /> {/* useSuspenseQuery → reads hydrated cache */}
+        </Suspense>
+      </ErrorBoundary>
+    </HydrateClient>
+  </XxxContainer>
+);
+```
+
+- `HydrateClient` (`lib/hydrate-client.tsx`) — generic `HydrationBoundary` + `dehydrate(getQueryClient())`
+- `prefetchXxx` — server-side cookies forwarded via `api()` `cookie` param + same `queryKey` as client hook → cache hit, zero refetch
+- `useSuspenseQuery` in Content → no loading state needed (cache already filled)
+- Skeleton in `XxxLoading` (not spinner) — perceived perf
+- `ErrorBoundary` catches both render errors AND query errors (TanStack `throwOnError`)
+
+### ⭐ nuqs URL state — single-file pattern
+
+- ONE file per feature: `features/<x>/server/params-loader.ts`
+- Exports both `xxxParams` (for client `useQueryStates`) + `xxxParamsCache` (for server `.parse(searchParams)`)
+- DRY: schema change → ek jagah update, dono sides aligned
+- `clearOnDefault: true` — default value === drop from URL → clean shareable links
 
 ---
 
@@ -564,7 +666,6 @@ NEVER re-declare `Request` in feature files — central augmentation only.
 
 ### 🚧 In progress / next
 
-- **Phase D2 (web)**: Admin courses list `/dashboard/courses` — nuqs URL params + debounced search + TanStack Query cursor pagination + DataTable with row actions (edit/view/delete)
 - **Phase D3 (web)**: Course create form — Dialog with sections (basic, pricing, schedule, marketing, SEO) + R2 file uploads (cover, thumb, demo video)
 - **Phase D4 (web)**: Course edit form — bento grid layout + danger zone + delete flow
 - **Phase D5 (web)**: TipTap editor — Notion-style rich editor with image/video/file embeds via R2 presigned URLs
