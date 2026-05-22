@@ -20,6 +20,8 @@
 import { Prisma } from "../../generated/prisma/client.js";
 import { slugify, uniqueSlugify } from "../../utils/slugify.js";
 import { NotFound, Forbidden, BadRequest } from "../../utils/app-error.js";
+import { deleteR2Object, keyFromPublicUrl } from "../../lib/r2.js";
+import { logger } from "../../utils/logger.js";
 import { courseRepository } from "./course.repository.js";
 import type {
   CreateCourseInput,
@@ -187,7 +189,7 @@ export async function createCourse(input: CreateCourseInput, authorId: string) {
     title: input.title,
     subtitle: input.subtitle,
     descriptionText: input.descriptionText,
-    description: input.description ?? undefined,
+    description: input.description,
     coverImageUrl: input.coverImageUrl,
     thumbnailUrl: input.thumbnailUrl,
     demoVideoUrl: input.demoVideoUrl,
@@ -253,7 +255,7 @@ export async function updateCourse(
       descriptionText: input.descriptionText,
     }),
     ...(input.description !== undefined && {
-      description: input.description ?? undefined,
+      description: input.description,
     }),
     ...(input.coverImageUrl !== undefined && {
       coverImageUrl: input.coverImageUrl,
@@ -348,19 +350,118 @@ export async function restoreCourse(
 }
 
 // ============================================================================
+// extractCourseR2Keys — collect every R2 object key owned by this course
+// ============================================================================
+// Surfaces:
+//   1. Top-level marketing assets:   coverImageUrl, thumbnailUrl, demoVideoUrl,
+//      ogImageUrl
+//   2. TipTap-embedded media in `description`: <img src="…">, <video src="…">,
+//      <a data-file-chip href="…">, plus anything carrying data-r2-key="…"
+//
+// Why two strategies (URL parse + data-r2-key)?
+//   - On insert, frontend stamps each node with `data-r2-key` (authoritative,
+//     no URL parsing needed). New content path.
+//   - Legacy content (uploaded before data-r2-key existed) only has src URLs.
+//     Falling back to URL-derived keys keeps cleanup working there too.
+//
+// Returns deduplicated, non-empty keys.
+// ============================================================================
+function extractCourseR2Keys(course: {
+  coverImageUrl: string | null;
+  thumbnailUrl: string | null;
+  demoVideoUrl: string | null;
+  ogImageUrl: string | null;
+  description: string | null;
+}): string[] {
+  const keys = new Set<string>();
+
+  // ─── 1. Top-level URL fields ───
+  const topLevel = [
+    course.coverImageUrl,
+    course.thumbnailUrl,
+    course.demoVideoUrl,
+    course.ogImageUrl,
+  ];
+  for (const url of topLevel) {
+    if (!url) continue;
+    const k = keyFromPublicUrl(url);
+    if (k) keys.add(k);
+  }
+
+  // ─── 2. Description HTML — scrape embedded media ───
+  if (course.description) {
+    // (a) data-r2-key="…"  — authoritative, written by frontend on insert
+    for (const m of course.description.matchAll(
+      /data-r2-key=["']([^"']+)["']/g,
+    )) {
+      if (m[1]) keys.add(m[1]);
+    }
+
+    // (b) src/href URLs — fallback for content predating data-r2-key
+    //     Matches src="…" and href="…" inside img/video/source/a tags.
+    for (const m of course.description.matchAll(
+      /(?:src|href)=["'](https?:\/\/[^"']+)["']/gi,
+    )) {
+      const k = keyFromPublicUrl(m[1]);
+      if (k) keys.add(k);
+    }
+  }
+
+  return [...keys];
+}
+
+// ============================================================================
 // DELETE course — ADMIN only (hard delete, cascades to modules + FAQs)
 // ============================================================================
 // Use archive for reversible "remove from listing". Hard delete should be
 // rare — accidental deletes are unrecoverable.
+//
+// Order: collect keys FIRST (need the row), Prisma delete next, R2 cleanup
+// LAST. If R2 cleanup partially fails we still consider the API call a
+// success — the DB is the source of truth, orphaned R2 objects are an ops
+// problem solvable by a sweep job (much better than leaving the row alive
+// because one of 30 images failed to delete).
 // ============================================================================
 export async function deleteCourse(id: string, user: { role: string }) {
   if (user.role !== "ADMIN") {
     throw new Forbidden("Only admins can delete courses", "ADMIN_ONLY");
   }
+
+  // Need the full row (including description HTML) to extract R2 keys.
+  // `findById` returns the row without relations, which is enough — relations
+  // (modules, FAQs) are cascaded by the DB and don't own R2 media themselves
+  // yet. When module lessons add media, extend this to walk them too.
   const existing = await courseRepository.findById(id);
   if (!existing) throw new NotFound("Course not found", "COURSE_NOT_FOUND");
 
+  const keys = extractCourseR2Keys(existing);
+
+  // DB delete first — source of truth must be consistent. If this throws we
+  // never touched R2, so user can safely retry.
   await courseRepository.delete(id);
+
+  // Best-effort R2 cleanup — fan out in parallel, log per-key failures.
+  if (keys.length > 0) {
+    const results = await Promise.allSettled(keys.map((k) => deleteR2Object(k)));
+    let deleted = 0;
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === "fulfilled") {
+        deleted++;
+      } else {
+        const reason =
+          r.reason instanceof Error ? r.reason.message : String(r.reason);
+        logger.warn(
+          { courseId: id, key: keys[i], reason },
+          "[courses] R2 cleanup failed for key (continuing)",
+        );
+      }
+    }
+    logger.info(
+      { courseId: id, requested: keys.length, deleted },
+      "[courses] R2 cleanup complete on course delete",
+    );
+  }
 }
 
 // ============================================================================

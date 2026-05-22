@@ -235,13 +235,19 @@ export function AdminCoursesContent() {
         </span>
       </div>
 
-      {/* ─── Table — initial load = skeleton, error = inline retry,
-                       refetch = dim previous data ─── */}
-      {isLoading ? (
+      {/* ─── Table ─────────────────────────────────────────────────────
+            Loading rules (Linear/Vercel pattern):
+              · isLoading            → no data yet → full skeleton
+              · isPlaceholderData    → showing STALE results while new ones
+                fetch (search/filter changed) → ALSO show skeleton so user
+                doesn't see mismatched rows that don't match their query
+              · isFetching only      → revalidation behind cached data of the
+                SAME query (e.g. window focus) → keep table, just dim it
+            ──────────────────────────────────────────────────────────── */}
+      {isLoading || isPlaceholderData ? (
         <AdminCourseTableSkeleton rows={params.pageSize} />
       ) : isError && !data ? (
         // Only show full error state when we have NO data to fall back on.
-        // Mid-search refetch errors → keepPreviousData keeps showing prev list.
         <AdminCoursesError
           error={error as Error}
           resetErrorBoundary={() => refetch()}
@@ -249,15 +255,13 @@ export function AdminCoursesContent() {
       ) : (
         <AdminCourseTable
           items={items}
-          // `isPlaceholderData` → showing previous results while new ones fetch.
-          // Pass it through so the table dims subtly (opacity transition).
-          isFetching={isPlaceholderData || isFetching}
+          isFetching={isFetching}
           hasFilters={hasFilters}
         />
       )}
 
       {/* ─── Pagination ─── */}
-      {pagination && pagination.totalPages > 1 && (
+      {pagination && pagination.totalPages > 0 && (
         <PaginationControls
           page={pagination.page}
           totalPages={pagination.totalPages}

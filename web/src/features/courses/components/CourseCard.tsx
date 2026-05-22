@@ -53,7 +53,7 @@ export default function CourseCard({ course, index = 0 }: CourseCardProps) {
           </div>
 
           {/* Cover image (mock = gradient; real = next/image later) */}
-          <div className="relative aspect-[16/10] overflow-hidden">
+          <div className="relative aspect-16/10 overflow-hidden">
             <motion.div
               className="absolute inset-0"
               style={{ background: course.coverImage }}

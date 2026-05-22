@@ -9,6 +9,7 @@ export const uploadKindEnum = z.enum([
   "course-thumb",
   "course-demo-video",
   "course-content-image",
+  "course-content-file", // PDFs / docs / archives embedded in description
   "user-avatar",
 ]);
 
@@ -28,3 +29,25 @@ export const presignUploadSchema = z.object({
 });
 
 export type PresignUploadInput = z.infer<typeof presignUploadSchema>;
+
+// ============================================================================
+// DELETE — remove R2 object(s). Accept key, url, OR bulk keys[].
+// ============================================================================
+// Caller usually has either:
+//   - `key`  → directly remembered from presign response
+//   - `url`  → only the publicUrl was stored (legacy / TipTap embeds)
+//   - `keys` → bulk cleanup (e.g., editor wipe, course hard delete)
+// `.refine()` catches empty `{}` payloads (must provide at least one).
+// ============================================================================
+export const deleteUploadSchema = z
+  .object({
+    key: z.string().min(1).max(512).optional(),
+    url: z.string().url().optional(),
+    keys: z.array(z.string().min(1).max(512)).max(100).optional(),
+  })
+  .refine(
+    (d) => !!d.key || !!d.url || (d.keys && d.keys.length > 0),
+    { message: "Provide at least one of: key, url, or keys[]" },
+  );
+
+export type DeleteUploadInput = z.infer<typeof deleteUploadSchema>;

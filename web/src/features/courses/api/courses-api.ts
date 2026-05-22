@@ -65,7 +65,29 @@ export async function updateCourse(
 }
 
 // ============================================================================
-// DELETE
+// ARCHIVE — soft delete (status → ARCHIVED, reversible)
+// ============================================================================
+export async function archiveCourse(
+  id: string,
+  reason?: string,
+): Promise<CourseListItem> {
+  return api<CourseListItem>(`/api/v1/courses/${id}/archive`, {
+    method: "POST",
+    json: reason ? { reason } : {},
+  });
+}
+
+// ============================================================================
+// RESTORE — ARCHIVED → DRAFT (re-publish explicit)
+// ============================================================================
+export async function restoreCourse(id: string): Promise<CourseListItem> {
+  return api<CourseListItem>(`/api/v1/courses/${id}/restore`, {
+    method: "POST",
+  });
+}
+
+// ============================================================================
+// DELETE — hard delete (ADMIN only, cascades modules + FAQs)
 // ============================================================================
 export async function deleteCourse(id: string): Promise<void> {
   return api<void>(`/api/v1/courses/${id}`, { method: "DELETE" });

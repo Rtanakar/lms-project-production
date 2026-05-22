@@ -63,6 +63,14 @@ export interface CourseListItem {
   createdAt: string;
   updatedAt: string;
   instructor: CourseInstructorSummary;
+
+  // ── Detail-only fields (omitted on LIST endpoint to keep payload small;
+  //    populated by GET /api/v1/courses/:slug which uses Prisma `include`).
+  //    Marked optional so list rows don't widen unnecessarily. ──────────────
+  description?: string | null; // TipTap HTML (Postgres TEXT column)
+  metaTitle?: string | null;
+  metaDescription?: string | null;
+  instructorId?: string | null;
 }
 
 // ─── Pagination meta (offset-based, matches backend `pagination` field) ───

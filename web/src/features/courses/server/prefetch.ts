@@ -18,6 +18,7 @@ import { STALE_TIME } from "@/config/constants";
 // "use client"). Server cannot use functions from client-marked modules.
 import { courseKeys } from "../api/course-keys";
 import type {
+  CourseListItem,
   CourseListResponse,
   ListCoursesQuery,
 } from "../types";
@@ -62,5 +63,40 @@ export async function prefetchCourses(query: ListCoursesQuery) {
     queryKey: courseKeys.list(query),
     queryFn: () => fetchCoursesServer(query, cookieHeader),
     staleTime: STALE_TIME.LIST,
+  });
+}
+
+// ============================================================================
+// fetchCourseBySlugServer — single-course server fetcher with cookie
+// ============================================================================
+async function fetchCourseBySlugServer(
+  slug: string,
+  cookie: string,
+): Promise<CourseListItem> {
+  return api<CourseListItem>(`/api/v1/courses/${slug}`, {
+    method: "GET",
+    cookie,
+  });
+}
+
+// ============================================================================
+// prefetchCourseBySlug — call from edit page.tsx (server component)
+// ============================================================================
+// Same queryKey as client `useCourse(slug)` → cache hit on hydration, no
+// loading flash. If course doesn't exist, the query will reject and the
+// client `useCourse` will surface the error via ErrorBoundary fallback.
+// ============================================================================
+export async function prefetchCourseBySlug(slug: string) {
+  const queryClient = getQueryClient();
+  const cookieStore = await cookies();
+  const cookieHeader = cookieStore
+    .getAll()
+    .map((c) => `${c.name}=${c.value}`)
+    .join("; ");
+
+  await queryClient.prefetchQuery({
+    queryKey: courseKeys.detail(slug),
+    queryFn: () => fetchCourseBySlugServer(slug, cookieHeader),
+    staleTime: STALE_TIME.DETAIL,
   });
 }

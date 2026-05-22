@@ -28,7 +28,9 @@ export const createCourseSchema = z
     subtitle: z.string().max(280).optional(),
 
     descriptionText: z.string().max(5000).optional(),
-    description: z.record(z.string(), z.any()).optional(),
+    // Rich TipTap HTML — plain string (column is TEXT). 200KB cap matches
+    // what a reasonable course description should ever reach.
+    description: z.string().max(200_000).optional().or(z.literal("")),
 
     coverImageUrl: z.string().url().optional(),
     thumbnailUrl: z.string().url().optional(),
@@ -74,7 +76,8 @@ export const updateCourseSchema = z
     slug: z.string().min(3).max(140).optional(),
     subtitle: z.string().max(280).nullable().optional(),
     descriptionText: z.string().max(5000).nullable().optional(),
-    description: z.record(z.string(), z.any()).nullable().optional(),
+    // Rich TipTap HTML — see create schema note. Nullable for explicit clears.
+    description: z.string().max(200_000).nullable().optional(),
 
     coverImageUrl: z.string().url().nullable().optional(),
     thumbnailUrl: z.string().url().nullable().optional(),

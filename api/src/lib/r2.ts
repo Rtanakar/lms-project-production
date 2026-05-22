@@ -49,14 +49,20 @@ export type UploadKind =
   | "course-thumb" // Smaller course card thumb
   | "course-demo-video" // Marketing demo video (R2 MP4)
   | "course-content-image" // TipTap embedded images (description)
+  | "course-content-file" // TipTap embedded attachments (PDF / docs / zips)
   | "user-avatar"; // Profile pictures
 
-// Allowed MIME types per kind — defense against arbitrary uploads
+// Allowed MIME types per kind — defense against arbitrary uploads.
+// `course-content-file` allows the document formats students actually share:
+// PDF, Office docs, plain text, markdown, archives, CSV/JSON. We intentionally
+// exclude executables, scripts, and HTML to keep stored content safe.
 const ALLOWED_TYPES: Record<UploadKind, RegExp> = {
   "course-cover": /^image\/(png|jpe?g|webp|avif)$/,
   "course-thumb": /^image\/(png|jpe?g|webp|avif)$/,
   "course-demo-video": /^video\/(mp4|webm|quicktime)$/,
   "course-content-image": /^image\/(png|jpe?g|webp|avif|gif)$/,
+  "course-content-file":
+    /^(application\/(pdf|zip|x-zip-compressed|json|msword|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet|presentationml\.presentation)|vnd\.ms-(excel|powerpoint))|text\/(plain|markdown|csv))$/,
   "user-avatar": /^image\/(png|jpe?g|webp|avif)$/,
 };
 
@@ -66,6 +72,7 @@ const MAX_SIZE: Record<UploadKind, number> = {
   "course-thumb": 2 * 1024 * 1024, // 2 MB
   "course-demo-video": 200 * 1024 * 1024, // 200 MB
   "course-content-image": 5 * 1024 * 1024, // 5 MB
+  "course-content-file": 50 * 1024 * 1024, // 50 MB — typical course handout cap
   "user-avatar": 2 * 1024 * 1024, // 2 MB
 };
 

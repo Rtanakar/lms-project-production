@@ -141,8 +141,14 @@ model Course {
   subtitle        String? // short tagline shown on cards
   // Plain-text description for SEO / search indexing
   descriptionText String? @db.Text
-  // TipTap JSON output (rich content) — images/videos embedded via R2 URLs
-  description     Json?
+  // Rich content from TipTap editor — stored as HTML string (not JSON).
+  // Why TEXT instead of JSON?
+  //   - TipTap already emits HTML via editor.getHTML() — no extra encode step
+  //   - Postgres TEXT has no size limit (well, 1 GB) — fine for any course
+  //   - Trivial to render: dangerouslySetInnerHTML or sanitize-html
+  //   - Avoids Json column quoting weirdness (single-string Json is awkward)
+  //   - Same pattern as the rest of the app (BlogPost.content also TEXT)
+  description     String? @db.Text
 
   // ── Marketing assets (R2 URLs) — sab updatable later ──
   coverImageUrl String? // hero / detail page cover

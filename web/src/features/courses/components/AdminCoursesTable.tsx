@@ -14,9 +14,11 @@ import Image from "next/image";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import {
   BookOpen,
   Eye,
+  Loader2,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -305,7 +307,7 @@ function CourseRow({ course }: { course: CourseListItem }) {
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link
-                  href={`/dashboard/courses/${course.id}/edit`}
+                  href={`/dashboard/courses/${course.slug}/edit`}
                   className="gap-2"
                 >
                   <Pencil className="size-3.5" />
@@ -343,11 +345,31 @@ function CourseRow({ course }: { course: CourseListItem }) {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-rose-600 text-white hover:bg-rose-700"
+              className="gap-2 bg-rose-600 text-white hover:bg-rose-700"
               disabled={deleteMutation.isPending}
-              onClick={() => deleteMutation.mutate(course.id)}
+              onClick={(e) => {
+                // AlertDialogAction closes the dialog by default; let it.
+                // We start the mutation and wrap it in a toast.promise so
+                // the user sees "Deleting…" → "Course deleted" or the
+                // server's error message in a single toast row.
+                e.preventDefault();
+                const p = deleteMutation.mutateAsync(course.id);
+                toast.promise(p, {
+                  loading: `Deleting "${course.title}"…`,
+                  success: "Course deleted permanently",
+                  error: (err) =>
+                    err instanceof Error ? err.message : "Failed to delete",
+                });
+                // Close the dialog immediately — feedback lives in the toast.
+                p.finally(() => setDeleteOpen(false));
+              }}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              {deleteMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
