@@ -168,15 +168,27 @@ features/
     api/
       courses-api.ts         ← REST fetchers (list/detail/create/update/delete)
       use-courses.ts         ← TanStack Query hooks + courseKeys factory
+    validators/
+      course-validator.ts    ← ⭐ Zod schemas + form/output types + enum labels + slugify
     components/
-      AdminCoursesView.tsx   ← ⭐ 4 exports: Container / Loading / Error / Content
+      AdminCoursesView.tsx   ← ⭐ 4 exports: Container / Loading / Error / Content (skeleton on isLoading || isPlaceholderData)
       AdminCoursesSearch.tsx ← search + filter chips
-      AdminCoursesTable.tsx  ← row actions + skeleton
-      CourseCard.tsx
-      CoursesGrid.tsx
-      ComparisonSection.tsx
-      FAQSection.tsx
-      CTASection.tsx
+      AdminCoursesTable.tsx  ← row actions + delete dialog (Trash2 + toast.promise)
+      CreateCourseView.tsx   ← ⭐ 4 exports; reusable inputs (TextInput/NumberInput/SelectInput/DateInput); popover-Calendar DateInput
+      EditCourseView.tsx     ← ⭐ 4 exports; courseToFormValues mapper; PATCH dirty-fields-only diff
+      CourseDescriptionEditor.tsx ← ⭐ TipTap shell — external value sync + isRestoringRef + toast.promise
+      MediaUploader.tsx      ← ⭐ cover/thumb/demo uploader; toast.promise upload + remove
+      TagListInput.tsx       ← chip-input for tags / whatYouLearn / prerequisites / includes
+      CourseCard.tsx, CoursesGrid.tsx, ComparisonSection.tsx, FAQSection.tsx, CTASection.tsx
+      editor/                ← ⭐ TipTap node + extension support
+        image-with-key.ts    ← Image extension with `data-r2-key` attribute
+        video-node.ts        ← Custom Video node (atom, draggable)
+        video-view.tsx       ← Video NodeView — contentEditable=false wrapper, onError diagnostic
+        file-chip-node.ts    ← File attachment chip node
+        slash-command.ts     ← `/` command menu
+        slash-command-menu.tsx
+        cleanup-extension.ts ← Diffs old/new doc for vanished `data-r2-key` → onKeysRemoved
+        editor-toolbar.tsx, bubble-menu-content.tsx, block-handle.tsx, editor-toc.tsx, video-view.tsx
     hooks/
       use-courses-params.ts  ← nuqs client hook
       use-courses-search.ts  ← debounced search (400ms)
@@ -343,7 +355,67 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
   - `DELETE /:id` — hard delete (ADMIN only, cascades modules + FAQs)
 - List response shape: `{ items, nextCursor, totalCount, totalPages, hasNextPage, hasPreviousPage, pagination }` (legacy `pagination` retained for back-compat)
 
-### ✅ Phase D2 (web) — Admin courses page (server prefetch + Suspense) ⭐ LATEST
+### ✅ Phase D3 / D4 / D5 — Create + Edit course forms + TipTap editor ⭐ LATEST
+
+- **`features/courses/components/CreateCourseView.tsx`** (4-export pattern: Container / Loading / Error / Content):
+  - RHF + Zod resolver + 3-generic `useForm<FormInput, Context, ResolverOutput>` (handles Zod `.default()` input/output mismatch)
+  - Sections: Basic / Media / Description / Pricing / Schedule / Tags & outcomes / SEO
+  - Auto slug from title (until user dirties slug)
+  - Sticky bottom action bar with `isDirty` indicator
+- **`features/courses/components/EditCourseView.tsx`**:
+  - `useCourse(slug)` fetches detail; `courseToFormValues(c)` maps API → form shape (null → "", ISO → Date, description/SEO/dates all mapped)
+  - `reset(defaultValues)` once data lands → clean `dirtyFields` for PATCH-only diff submit
+  - **PATCH only `dirtyFields`** (Netflix/Linear semantics) — won't overwrite concurrent edits
+  - Slug-change redirect on save success
+- **`features/courses/components/CourseDescriptionEditor.tsx`** — Notion-grade TipTap:
+  - StarterKit + Placeholder + TaskList/Item + TextStyle/Color + ImageWithKey + VideoNode + FileChipNode + SlashCommand + BlockHandle + BubbleMenu + EditorToc
+  - **External value sync** via `useEffect` calling `editor.commands.setContent(value, { emitUpdate: false })` when prop changes — required because `useEditor({ content })` reads only on mount (edit page hydration was missing description)
+  - **`isRestoringRef` guard** — programmatic content swaps mute `CleanupExtension.onKeysRemoved` so form-reset on PATCH success doesn't fire phantom `deleteMediaBulk` (the doc-clear step in `setContent` would otherwise delete keys that are about to immediately come back — real R2 data loss bug)
+  - All uploads (image / video / file) + cleanup deletes use `toast.promise` pattern — single toast row walks loading → success/error
+- **`features/courses/components/MediaUploader.tsx`** — reusable image/video uploader for cover/thumb/demo:
+  - Drag-drop + click-to-upload, preview, Remove button with spinner + toast.promise
+  - Validates kind + MIME + size before presign roundtrip
+- **`features/courses/components/editor/video-view.tsx`** — VideoNode React NodeView:
+  - `<video>` wrapped in `contentEditable={false}` div + `onMouseDown/onPointerDown/onClick stopPropagation` so ProseMirror's atom-block selection doesn't swallow native controls (play/seek/volume work)
+  - `data-drag-handle` removed from wrapper (was making the whole node a drag handle → killed inner clicks)
+  - `onError` handler surfaces helpful R2 CORS / public-access message instead of stuck-at-0:00 controls
+  - `playsInline` + `controlsList="nodownload"` (mobile + industry default)
+- **`lib/upload-media.ts`** — direct-to-R2 upload helper:
+  - Browser-side **WebP conversion** for image kinds (Canvas `toBlob('image/webp', 0.92)`, per-kind dimension caps: cover 1920×1080, thumb 800², avatar 512², content 1920×1080) → 40-60% smaller at high quality (Netflix/Vercel pattern)
+  - Skips re-encode if input is already `image/webp` under 1MB
+  - `cleanCreatePayload` drops `""`, `null`, AND `undefined` (CREATE schema is `.optional()` not `.nullable()`)
+
+### ✅ Phase 11.5E (web+api) — Course delete with full R2 cleanup
+
+- **`api/src/modules/courses/course.service.ts → extractCourseR2Keys()`** — collects keys from:
+  1. Top-level URL columns (`coverImageUrl`, `thumbnailUrl`, `demoVideoUrl`, `ogImageUrl`)
+  2. TipTap-embedded media in description HTML: `data-r2-key="…"` matches (authoritative — frontend stamps on insert) + fallback `src/href="https://…"` URL parsing
+- **`deleteCourse(id, user)`** ordering: DB delete FIRST (source of truth must stay consistent), then `Promise.allSettled(keys.map(deleteR2Object))` best-effort with per-key pino warn. Orphaned R2 objects = ops problem (sweep job), DB consistency wins.
+
+### ✅ Course description schema migration — `Json?` → `String? @db.Text` ⭐
+
+- **Root cause of "edit page description empty" bug**: storing TipTap HTML in a Postgres `Json?` column meant single-string JSON values (`"<p>hi</p>"`) round-tripped awkwardly + Zod required `z.union([string, record])` with `z.any()` — bad senior-engineer signal
+- **Fix**: column changed to `String? @db.Text` (same pattern as `BlogPost.content` in user's other project)
+- **Backend Zod simplified**: `description: z.string().max(200_000).optional().or(z.literal(""))` (create), `.nullable().optional()` (update) — strict string only
+- **Migration**: `npx prisma migrate dev --name course_description_to_text` regenerates Prisma client → service writes `input.description` directly, no `?? undefined` JSON juggling
+
+### ✅ Toast.promise pattern everywhere ⭐
+
+Single-toast-row loading → success/error swap (sonner's `toast.promise`), tee'd promise so caller's `finally` can flip local state:
+
+```ts
+const p = doThing();
+toast.promise(p, { loading: "…", success: "…", error: (err) => err.message });
+try { await p; } catch { /* already toasted */ } finally { setLoading(false); }
+```
+
+Applied to:
+- `MediaUploader` upload + remove
+- `CourseDescriptionEditor` upload (image/video/file) + CleanupExtension R2 delete
+- `AdminCoursesTable` delete dialog action (`mutateAsync` + close dialog instantly; feedback lives in toast)
+- `useDeleteCourse` hook stripped of internal toasts (callers now own UX) — pattern: hook owns invalidation, caller owns toast
+
+### ✅ Phase D2 (web) — Admin courses page (server prefetch + Suspense)
 
 - `app/courses/page.tsx` — server component pattern (Netflix/Vercel/Linear REST equivalent of tRPC HydrateClient flow):
   ```tsx
@@ -446,7 +518,9 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 | ------ | --------------------------- | -------------------------------------------- | ---------------------------------------- |
 | POST   | `/api/v1/uploads/presigned` | `{ kind, contentType, filename, sizeBytes }` | `{ uploadUrl, publicUrl, key, headers }` |
 
-**Upload kinds**: `course-cover` (5MB image), `course-thumb` (2MB image), `course-demo-video` (200MB video), `course-content-image` (5MB image for TipTap), `user-avatar` (2MB image)
+**Upload kinds**: `course-cover` (5MB image), `course-thumb` (2MB image), `course-demo-video` (200MB video), `course-content-image` (5MB image for TipTap), `course-content-file` (50MB — PDF/Word/Excel/PPT/ZIP/TXT/MD/CSV/JSON for TipTap attachments), `user-avatar` (2MB image)
+
+**Delete endpoint** (idempotent, best-effort): `DELETE /api/v1/uploads` — body accepts `{ key }`, `{ url }`, or `{ keys: string[] }` (bulk). Used by MediaUploader Remove, TipTap CleanupExtension auto-cleanup, and course hard-delete cascade.
 
 ### Misc
 
@@ -625,6 +699,41 @@ return (
 - Skeleton in `XxxLoading` (not spinner) — perceived perf
 - `ErrorBoundary` catches both render errors AND query errors (TanStack `throwOnError`)
 
+### ⭐ TipTap + uncontrolled-editor sync gotcha
+
+`useEditor({ content: value })` reads `content` only ONCE on mount — async data (edit-page fetch landing AFTER mount, form `reset()` swapping values) is ignored. Two-part pattern:
+
+1. **Sync effect** — `useEffect(() => { editor.commands.setContent(value, { emitUpdate: false }) }, [value])` with empty-doc normalization (`"<p></p>"` ≡ `""`)
+2. **Restore guard ref** — `isRestoringRef.current = true` BEFORE `setContent`, `queueMicrotask(() => isRestoringRef.current = false)` AFTER. CleanupExtension's `onKeysRemoved` callback checks the ref and early-returns. FIFO microtask ordering guarantees the phantom-removal callback (scheduled synchronously inside `setContent`) runs first while the guard is still set; legit subsequent removes still clean up because the guard is `false` by the next tick.
+
+Without these, edit page shows empty TipTap and PATCH triggers phantom `deleteMediaBulk` for all current keys → real R2 data loss.
+
+### ⭐ TipTap atom-node controls (video/image) — clicks getting eaten
+
+ProseMirror treats atom-block NodeViews as opaque selectables: `mousedown` initiates atom selection, swallowing inner click events. Native `<video controls>` shows but play/seek/volume feel "disabled".
+
+**Fix recipe** (applied in `video-view.tsx`):
+
+1. Remove `data-drag-handle` from `NodeViewWrapper` (drag via separate BlockHandle component)
+2. Wrap interactive element in `<div contentEditable={false}>` — ProseMirror skips ownership
+3. `onMouseDown / onPointerDown / onClick stopPropagation` on that wrapper — belt-and-suspenders against bubbling atom-select
+4. Override inherited atom styles: `select-text pointer-events-auto`
+
+### ⭐ R2 GET CORS — separate from PUT CORS
+
+Presigned PUT works on its own — direct-to-R2 upload succeeds. But the **public bucket URL** (`pub-xxx.r2.dev/...`) used by `<video src>` / `<img src>` requires:
+
+- Bucket → Settings → **Public Development URL** enabled (or custom domain)
+- CORS policy with `AllowedMethods: ["GET", "HEAD", "PUT", "DELETE"]` AND `AllowedHeaders: ["*"]` (critical — preflight rejects `image/webp` / `video/mp4` Content-Type without this)
+
+Symptom of missing GET CORS / public access: PUT toasts "success" but video controls stuck at 0:00, image doesn't render. `VideoView` `onError` surfaces this with a copy-pastable hint.
+
+### ⭐ Date picker — controlled popover for auto-close
+
+shadcn `<Popover>` is uncontrolled by default — picking a Calendar date doesn't close the popover (only outside-click / Escape does). Industry standard (Linear / Notion / Stripe) auto-closes on commit.
+
+Pattern: extract Controller's render-prop into a real subcomponent so hooks rules apply, use `const [open, setOpen] = useState(false)` + `<Popover open={open} onOpenChange={setOpen}>` + `onSelect={(d) => { onChange(d ?? null); if (d) setOpen(false); }}`. Don't close on `null` so "click same day to clear" keeps the calendar open for immediate re-pick.
+
 ### ⭐ nuqs URL state — single-file pattern
 
 - ONE file per feature: `features/<x>/server/params-loader.ts`
@@ -649,6 +758,15 @@ return (
 | Footer cursor-reveal not following        | Mouse tracking missing                   | onMouseMove sets `--mx`/`--my` CSS vars, mask uses them |
 | Service touches Prisma directly           | Bypasses repository pattern              | Service calls `courseRepository.*` only                 |
 | Hydration mismatch on user name           | useSession() loads async                 | Use `useCurrentUser()` (server-seeded via Provider)     |
+| Edit page description empty (TipTap)      | `useEditor({ content })` reads only on mount | Add `useEffect` calling `editor.commands.setContent(value, { emitUpdate: false })` |
+| "N items removed" toast on PATCH save     | `setContent` clears doc → CleanupExtension fires | `isRestoringRef` guard skips cleanup during programmatic restore |
+| Video controls dead (stuck at 0:00)       | Either ProseMirror atom swallows clicks OR R2 GET CORS / public access not set | `contentEditable={false}` wrapper + stopPropagation; check R2 bucket public access + CORS `AllowedHeaders: ["*"]` |
+| Calendar popover stays open after pick    | shadcn Popover uncontrolled by default   | Controlled `open` state + `setOpen(false)` in `onSelect` when date present |
+| Create course → "Invalid request data" 400 | `null` on `startDate`/etc. (CREATE schema is `.optional()` not `.nullable()`) | `cleanCreatePayload` drops `""`, `null`, AND `undefined` |
+| Course description not in detail response | `COURSE_LIST_SELECT` omits description but detail route uses `include` → returns scalars by default; type just missing | Add `description?, metaTitle?, metaDescription?, instructorId?` to `CourseListItem` (optional) |
+| `description Json?` storing strings awkwardly | Postgres Json column wraps strings as JSON values | Switched column to `String? @db.Text` (migration `course_description_to_text`) — same as `BlogPost.content` |
+| Course hard-delete leaves R2 orphans      | No cleanup in old `deleteCourse` service | `extractCourseR2Keys` scrapes URLs + `data-r2-key` from description HTML, fan-out `Promise.allSettled(deleteR2Object)` after DB delete |
+| Duplicate toasts on delete (hook + caller) | Hook toasted on success/error AND caller used `toast.promise` | Strip toasts from `useDeleteCourse`; caller owns UX (toast.promise + dialog close) |
 
 ---
 
@@ -662,15 +780,18 @@ return (
 - Phase 11.5A (web): Courses marketing listing page + Footer with cursor-reveal wordmark
 - Phase 11.5C (api): Courses CRUD + Modules + FAQs + R2 presigned uploads + Helmet hardening
 - Phase 11.5D (api): ⭐ **Refactored to feature modules + repositories** (Path B architecture)
-- **Phase D1 (web)**: ⭐ Dashboard shell — layout + sidebar + header + CurrentUserProvider + role-aware home + StatCards + QuickActions + PaginationControls
+- Phase D1 (web): Dashboard shell — layout + sidebar + header + CurrentUserProvider + role-aware home + StatCards + QuickActions + PaginationControls
+- Phase D2 (web): Admin courses page (server prefetch + Suspense + ErrorBoundary, search-time skeleton via `isLoading || isPlaceholderData`)
+- **Phase D3 (web)**: ⭐ Course create form — 4-export composition, RHF + Zod, sections (Basic/Media/Description/Pricing/Schedule/Tags/SEO), MediaUploader for cover/thumb/demo, popover Calendar DateInput with controlled auto-close, sticky action bar
+- **Phase D4 (web)**: ⭐ Course edit form — `useCourse(slug)` hydration, PATCH dirty-fields-only diff, slug-change redirect, discard button, complete description/SEO/dates pre-fill
+- **Phase D5 (web)**: ⭐ TipTap editor — Notion-grade with image/video/file embeds, SlashCommand, BlockHandle, BubbleMenu, TOC, R2 auto-cleanup, external-value-sync, restore-guard, toast.promise on every upload/remove
+- **Phase 11.5E (web+api)**: ⭐ Course delete with full R2 cleanup — `extractCourseR2Keys` scrapes top-level URLs + description HTML, DB-first then best-effort R2 fan-out
+- ⭐ Description schema migration `Json? → String? @db.Text`, browser-side WebP conversion, `course-content-file` upload kind (PDF/Word/Excel/ZIP/etc.), toast.promise unified pattern, video-view ProseMirror atom-click fix, date picker auto-close
 
 ### 🚧 In progress / next
 
-- **Phase D3 (web)**: Course create form — Dialog with sections (basic, pricing, schedule, marketing, SEO) + R2 file uploads (cover, thumb, demo video)
-- **Phase D4 (web)**: Course edit form — bento grid layout + danger zone + delete flow
-- **Phase D5 (web)**: TipTap editor — Notion-style rich editor with image/video/file embeds via R2 presigned URLs
-- **Phase 11.5B (web)**: Public course detail page `/courses/[slug]` rendering real backend data + TipTap viewer
-- **Phase 11.5E (web)**: Replace mock-data with TanStack Query hooks against real `/api/v1/courses`
+- **Phase 11.5B (web)**: Public course detail page `/courses/[slug]` rendering real backend data + TipTap HTML renderer (with sanitize-html or DOMPurify)
+- **Phase 11.5F (web)**: Replace `mock-data.ts` on public `/courses` listing with real `/api/v1/courses` TanStack Query hooks
 - **Phase 11.6 (api+web)**: Lessons model + Mux integration + BullMQ workers for video processing
 - **Phase 7 (api)**: Payments (Razorpay or Stripe) + Order/Enrollment model
 - **Phase 8 (api)**: Notifications service expansion (push + SMS via Twilio)
@@ -707,6 +828,10 @@ pnpm prisma:generate           # after schema.prisma change
 pnpm prisma:migrate            # create + apply migration (dev)
 pnpm prisma:deploy             # apply pending (prod)
 pnpm prisma:studio             # DB GUI
+
+# Latest migration to be aware of:
+#   course_description_to_text  — Course.description: Json? → String? @db.Text
+#   (run `npx prisma migrate dev --name course_description_to_text` if not yet applied)
 ```
 
 ### Frontend
@@ -810,3 +935,10 @@ cd web && pnpm dev    # in another
 | ⭐ CurrentUserProvider (server-seeded) over useSession() | Zero hydration mismatch, no refetch waterfall, optimistic patches possible                                         |
 | ⭐ Cursor + offset hybrid pagination                     | Cursor for stable next/prev, offset for "jump to page" UX (PaginationControls supports both)                       |
 | ⭐ Smart pagination UI (dropdown ≤10 / input >10)        | Dropdown unwieldy past 10 pages — Linear/Vercel pattern                                                            |
+| ⭐ Course `description` as `String? @db.Text` (was Json?) | TipTap emits HTML — no encode/decode roundtrip; single-string Json column awkward; matches `BlogPost.content` shape; trivially renderable via DOMPurify |
+| ⭐ Browser-side WebP conversion before R2 upload         | 40-60% smaller files at quality 0.92, zero backend cost, no extra deps (Canvas API); skip if input already small WebP |
+| ⭐ `toast.promise` everywhere (tee'd-promise pattern)    | Single toast row walks loading → success/error; consistent UX across uploads, removes, deletes; hook owns invalidation, caller owns toast → no duplicates |
+| ⭐ DB-first then R2 cleanup on hard delete               | DB is source of truth; R2 orphans are an ops problem (sweep job), partial cleanup failure shouldn't block course delete |
+| ⭐ `isRestoringRef` guard in TipTap editor               | `setContent` clears doc → CleanupExtension would phantom-delete keys; FIFO microtask ordering with the guard prevents real R2 data loss on form reset |
+| ⭐ PATCH dirty-fields-only on edit                       | Won't overwrite concurrent admin edits to fields current admin didn't touch; semantic match for PATCH (vs PUT) |
+| ⭐ `data-r2-key` attribute on every embedded media node  | Authoritative cleanup signal — frontend stamps on insert; CleanupExtension diffs old/new doc for keys that vanished; course hard-delete scrapes HTML for the same attribute |
