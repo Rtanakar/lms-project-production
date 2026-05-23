@@ -39,11 +39,11 @@
 - **Framework**: **Next.js 16** (Turbopack default, async cookies/params/searchParams, `proxy.ts` replaces `middleware.ts`)
 - **React 19** + TypeScript 5
 - **UI**: shadcn (radix-nova style) + Tailwind v4 + lucide-react + **motion** (formerly framer-motion)
-- **State**: **TanStack Query 5** (server state) + **nuqs** (URL state) + React Context (auth user) — **Zustand NOT used, Redux NOT used**
+- **State**: **TanStack Query 5** (server state) + **nuqs** (URL state) + React Context (auth user) + **Zustand 5 with persist** (cart, future client-only state) — **Redux NOT used**
 - **Forms**: React Hook Form + Zod resolver
 - **Toasts**: sonner
 - **Theme**: next-themes (dark base)
-- **No**: tRPC, gRPC, NestJS, superjson global transformer, Zustand, Redux
+- **No**: tRPC, gRPC, NestJS, superjson global transformer, Redux Toolkit
 
 ### Brand
 
@@ -138,9 +138,17 @@ app/
     page.tsx                 ← ⭐ admin courses (server prefetch + Suspense + ErrorBoundary)
 components/
   marketing/
-    TopNav.tsx               ← sticky pill nav with useSession()
+    SiteHeader.tsx           ← ⭐ scroll-hide glassy chip + full-screen NavOverlay (2-col with meta + socials)
+    UserMenu.tsx             ← ⭐ dropdown chip (Dashboard / My Courses / Profile / Sign out with toast.promise)
+    TopNav.tsx               ← (legacy, kept for reference — not mounted in marketing layout anymore)
     SectionHeading.tsx       ← chip + gradient heading
     Footer.tsx               ← cursor-reveal "LMS" wordmark + links + socials
+  motion/
+    magnetic.tsx             ← ⭐ pointer-follow translate wrapper (Awwwards staple)
+    animated-menu-link.tsx   ← ⭐ two-copy hover-slide text reveal
+    lenis-provider.tsx       ← ⭐ Lenis smooth-scroll provider (marketing routes only)
+stores/
+  ui-store.ts                ← ⭐ Zustand: menuOpen (overlay state, not persisted)
   dashboard/                 ← ⭐ NEW
     DashboardSidebar.tsx     ← role nav + profile dropdown bottom-anchored
     DashboardHeader.tsx      ← sidebar trigger + greeting + actions
@@ -162,6 +170,15 @@ features/
       ForgotPasswordForm.tsx
       ResetPasswordForm.tsx
       VerifyEmailClient.tsx
+  dashboard/                  ← ⭐ staff-only (ADMIN/INSTRUCTOR) live courses-backed dashboard
+    server/
+      prefetch.ts            ← prefetchDashboard() — parallel fan-out (total/live/upcoming/recent), no role arg
+    views/
+      DashboardView.tsx      ← 4 exports: Container / Loading (delegates to DashboardSkeleton) / Error / Content — uses StaffRole type
+    components/
+      DashboardSkeleton.tsx  ← ⭐ pixel-accurate 1:1 mirror of real components (stat cards / quick actions / recent list) — zero layout shift on hydrate, no role prop
+      DashboardStatsLive.tsx ← useSuspenseQueries fetching 3 parallel counts (total/live/upcoming); narrowed to StaffRole
+      RecentCoursesPanel.tsx ← useSuspenseQuery, last 5 courses with status badges
   courses/
     types.ts                 ← CourseListItem / pagination types
     mock-data.ts             ← 6 sample courses (legacy public listing)
@@ -171,6 +188,10 @@ features/
     validators/
       course-validator.ts    ← ⭐ Zod schemas + form/output types + enum labels + slugify
     components/
+      PublicCoursesSearch.tsx ← ⭐ marketing-side search + filter toggle + level/sort panel (admin-styled)
+      PublicCoursesView.tsx   ← ⭐ 4 exports: Container / Loading / Error / Content (mirrors AdminCoursesView)
+      MyCoursesView.tsx       ← ⭐ 4 exports: same shell + sign-in gate + mock progress overlay
+      CourseCardSkeleton.tsx  ← ⭐ price | progress variant skeleton (matches CourseProductCard 1:1)
       AdminCoursesView.tsx   ← ⭐ 4 exports: Container / Loading / Error / Content (skeleton on isLoading || isPlaceholderData)
       AdminCoursesSearch.tsx ← search + filter chips
       AdminCoursesTable.tsx  ← row actions + delete dialog (Trash2 + toast.promise)
@@ -642,15 +663,22 @@ NEVER re-declare `Request` in feature files — central augmentation only.
 - `cookies()` returns request-scoped cookies (sent by browser)
 - `localhost:3000` and `localhost:8080` SHARE cookies (cookie domain is hostname not host:port)
 
-### ⭐ Frontend state pattern (NO Zustand, NO Redux)
+### ⭐ Frontend state pattern (Zustand for client-only, NO Redux)
 
 - **Server state**: TanStack Query 5 (queries + mutations + cache invalidation)
 - **URL state**: nuqs (search params persisted to URL — search, filters, page, sort)
 - **Auth/user**: `CurrentUserProvider` (React Context, server-seeded — `features/auth/hooks/use-current-user.tsx`)
 - **Forms**: React Hook Form + Zod resolver (each form has local `useForm`)
 - **Tiny UI state**: `useState` in component (modal open, dropdown, etc.)
+- **Client-only persistent state (cart, future)**: **Zustand 5 with `persist` middleware → localStorage**
 
-**Why not Zustand?** Server state handled by TanStack Query. URL state by nuqs. Auth by Context. Form state by RHF. There's no global client state left worth a store. Linear, Vercel, Cal.com use this same approach.
+**Why Zustand (and not Redux Toolkit) in 2026:**
+~1KB vs RTK's ~12KB · zero boilerplate (store IS the API, no actions/reducers/dispatchers) · React 19 + RSC friendly (no provider tree needed) · selector hooks subscribe to slices (cheap re-renders by default) · `persist` middleware built in for localStorage/sessionStorage. Used by Linear, Vercel, Resend, Cal.com, OpenAI. RTK still strong for huge enterprise apps that NEED Redux DevTools time-travel + strict structure (Netflix legacy) — but for an LMS cart it's overkill.
+
+**Cart-specific layout** (`features/cart/`):
+- `store/cart-store.ts` — Zustand `create()` with `persist({ name: "lms-cart-v1", partialize: state → state.items })` and exported slice-selectors (`useCartCount`, `useCartItems`, `useCartSubtotal`, `useCartOriginalTotal`, `useIsInCart`)
+- `components/CartButton.tsx` — bag icon + animated count badge (hydration-safe: badge hidden until `mounted` to avoid SSR/localStorage mismatch)
+- `components/CartSheet.tsx` — shadcn `Sheet` slide-in from right, header/scroll-list/footer with subtotal + "You save" + Checkout CTA, empty-state with "Explore courses" link
 
 ### ⭐ Current user pattern (web)
 
@@ -787,6 +815,20 @@ Pattern: extract Controller's render-prop into a real subcomponent so hooks rule
 - **Phase D5 (web)**: ⭐ TipTap editor — Notion-grade with image/video/file embeds, SlashCommand, BlockHandle, BubbleMenu, TOC, R2 auto-cleanup, external-value-sync, restore-guard, toast.promise on every upload/remove
 - **Phase 11.5E (web+api)**: ⭐ Course delete with full R2 cleanup — `extractCourseR2Keys` scrapes top-level URLs + description HTML, DB-first then best-effort R2 fan-out
 - ⭐ Description schema migration `Json? → String? @db.Text`, browser-side WebP conversion, `course-content-file` upload kind (PDF/Word/Excel/ZIP/etc.), toast.promise unified pattern, video-view ProseMirror atom-click fix, date picker auto-close
+- **Phase D6 (web)**: ⭐ **Shopping cart (Zustand + persist)** — `features/cart/` with `useCartStore`, `CartSheet` (shadcn Sheet right-slide), `CartButton` (icon + animated count badge, hydration-safe), idempotent add, selector hooks (`useCartCount`, `useCartSubtotal`, `useIsInCart`). Mounted in marketing `TopNav`.
+- **Phase D7 (web)**: ⭐ **Purchase-aware `CourseProductCard`** — single component, two variants chosen by `progress` prop: pre-purchase (price + tags + rating + "Add to cart" / "In cart") vs post-purchase (chapters + animated progress bar + "Continue / Start learning / Review course"). Mirrors Udemy/Coursera pattern.
+- **Phase D8 (web)**: ⭐ Public marketplace routes — `(marketing)` route group with shared TopNav layout; `/courses` (real backend via `useCourses`, cart-enabled cards) and `/my-courses` (sign-in gate + mock progress data, swappable when Enrollment model arrives).
+- **Phase D9 (web)**: ⭐ **Awwwards-grade marketing chrome** — replaced `TopNav` with `SiteHeader` (scroll-hide chip, glassy on scroll, full-screen `NavOverlay` with 2-col layout, animated link stack), `LenisProvider` smooth-scroll on `(marketing)` only, motion primitives (`Magnetic` pointer-follow wrapper + `AnimatedMenuLink` two-copy hover slide), `UserMenu` dropdown (Dashboard / My Courses / Profile / Sign out with `toast.promise` sign-out flow), `useUIStore` (Zustand UI state, NOT persisted) for menu open/close.
+- **Phase D10 (web)**: ⭐ **Marketplace pages redesigned** — `/courses` + `/my-courses` now use the journal-style layout: hero strip (section number + label + display heading + intro) → centered debounced search bar (`PublicCoursesSearch`, 300ms) → 3-col card grid → numeric pagination ("Page N of M"). Animated with motion stagger reveal on hero + entry tilt on cards.
+- **Phase D11 (web)**: ⭐ **Marketplace pages refactored to admin-parity composition** — `/courses` and `/my-courses` `page.tsx` files are now thin server components (parse nuqs params → `prefetchCourses` → `<Container><HydrateClient><ErrorBoundary><Suspense><Content/></Suspense></ErrorBoundary></HydrateClient></Container>`). All logic in `PublicCoursesView` / `MyCoursesView` (4 exports: Container / Loading / Error / Content). Same `useCourseParams` + `useCoursesSearch` + `useQuery` + `keepPreviousData` + `PaginationControls` flow as `AdminCoursesView` — skeleton lights up on `isLoading || isPlaceholderData` (search/filter/page change) so users never see mismatched rows. Reusable `CourseCardSkeleton` (price / progress variant) shared between both pages. Killed the local `useState` debounce + cascading-render `useEffect(() => setPage(1))` warning — nuqs hook handles page reset in a single `setParams({ search, page: 1 })`.
+- **Phase D12 (web)**: ⭐ **Dashboard wired to LIVE courses data** — `/dashboard/page.tsx` is now a thin server component too (`requireAuth` → `prefetchDashboard(role)` → 4-export `DashboardView`). Role-aware:
+  - ADMIN / INSTRUCTOR see live stats (Total / Live now / Upcoming + revenue placeholder) backed by 3 parallel `useQueries` reading the SAME query keys the server prefetched (free counts via `pagination.total`, no over-fetch). Recent-5 list with status badges + jump-to-edit.
+  - STUDENT sees a "Recommended for you" 4-up grid of newest published courses (`CourseProductCard` price variant — adds to cart).
+  - Stats + recent panel + recommended grid all share the SAME `useCourses` API + cache as the marketplace pages → mutations elsewhere invalidate them for free.
+  - Server-safe barrel split: `features/dashboard/server/queries.ts` (pure constants `DASHBOARD_QUERIES`) + `prefetch.ts` (server-only via `next/headers`). Client components import `DASHBOARD_QUERIES` from `queries.ts` so Turbopack doesn't pull `next/headers` into the browser bundle.
+- **Phase D12.2 (web)**: ⭐ **Dashboard is now staff-only (ADMIN/INSTRUCTOR)** — STUDENTs have the marketing surfaces (`/courses` + `/my-courses`), they don't need a dashboard. `/dashboard/layout.tsx` redirects STUDENT → `/my-courses` (gates at layout so nothing renders behind), `/dashboard/page.tsx` switched from `requireAuth` to `requireRole("ADMIN","INSTRUCTOR")` as defence-in-depth. New `StaffRole = "ADMIN" | "INSTRUCTOR"` type in `auth-helpers.ts` narrows downstream contracts (DashboardView, DashboardSkeleton, DashboardStatsLive, QuickActions, DashboardSidebar) — STUDENT branches deleted, not just dead-coded. `RecommendedCoursesPanel.tsx` deleted (STUDENT-only). `recommended` removed from `DASHBOARD_QUERIES`. `requireUnauth` + `requireRole` now use a shared `homeForRole(role)` helper so STUDENT lands on `/my-courses` and staff on `/dashboard`. `SignUpForm` callbacks → `/my-courses` (all new accounts are STUDENT). Marketing `UserMenu` hides the "Dashboard" item for STUDENT; `TopNav` chip routes role-aware. Sign-in via `/sign-in` defaults to `/dashboard` and lets the layout bounce STUDENT — one extra redirect on that path, acceptable tradeoff (avoids fetching role in a client form).
+- **Phase D12.1 (web)**: ⭐ **Dashboard skeleton actually visible now** — full-page `DashboardSkeleton` was never rendering because all Live panels used non-suspense `useQuery` (each handled its own internal `isLoading` branch, so outer `<Suspense fallback={DashboardLoading}>` caught nothing). Converted `DashboardStatsLive` → `useSuspenseQueries` (split into `StaffStatsLive` for ADMIN/INSTRUCTOR fetch + STUDENT mock path with no fetch — `useSuspenseQueries` has no `enabled` flag), `RecentCoursesPanel` + `RecommendedCoursesPanel` → `useSuspenseQuery`, deleted their internal `isLoading` skeletons (dead code). New `features/dashboard/components/DashboardSkeleton.tsx` is a pixel-accurate 1:1 mirror of real components (stat cards with border-l-4 accent + icon chip, quick action tiles with icon top + label/desc stack, recent list rows with thumb + title + slug + status badge, or recommended grid via `CourseCardSkeleton`). Role-aware (ADMIN/INSTRUCTOR vs STUDENT) so wrong panel shape never flashes. Cache cold → skeleton; cache warm (normal prefetch) → instant content, zero flash.
+- **Phase D13 (web)**: ⭐ **`useCourses` opinionated hook now drives all three views** — `features/courses/hooks/use-courses.ts` bundles URL state (nuqs) + debounced search + TanStack Query + `keepPreviousData` + filter helpers + pagination helpers behind one call. `AdminCoursesView`, `PublicCoursesView`, and `MyCoursesView` all destructure from it — zero duplicated query/filter wiring across the three pages. Accepts `{ publicMode: true }` to omit `status` from the API (so marketing surfaces can't query DRAFT/ARCHIVED even via URL tampering) and to strip `setStatus` from the surface contract. Disambiguation: `features/courses/api/use-courses.ts` keeps the RAW `useCourses(query)` wrapper used by direct-fetch panels (Dashboard `RecentCoursesPanel`, `RecommendedCoursesPanel`); the OPINIONATED variant lives in `hooks/use-courses.ts`.
 
 ### 🚧 In progress / next
 
@@ -942,3 +984,11 @@ cd web && pnpm dev    # in another
 | ⭐ `isRestoringRef` guard in TipTap editor               | `setContent` clears doc → CleanupExtension would phantom-delete keys; FIFO microtask ordering with the guard prevents real R2 data loss on form reset |
 | ⭐ PATCH dirty-fields-only on edit                       | Won't overwrite concurrent admin edits to fields current admin didn't touch; semantic match for PATCH (vs PUT) |
 | ⭐ `data-r2-key` attribute on every embedded media node  | Authoritative cleanup signal — frontend stamps on insert; CleanupExtension diffs old/new doc for keys that vanished; course hard-delete scrapes HTML for the same attribute |
+| ⭐ Zustand for cart (reversed "no Zustand" stance)        | Cart is genuine client-only persistent state — survives reload, read by many disconnected components, no server source of truth pre-checkout. TanStack/nuqs/Context all wrong tools. Zustand fits exactly; RTK overkill for one store. |
+| ⭐ Single CourseProductCard with purchase-aware variant   | Avoids two near-duplicate components (UpsellCard / EnrolledCard) drifting out of sync. `progress` prop drives the divergence — same brand chrome, only the footer block changes. Udemy/Coursera pattern. |
+| ⭐ `(marketing)` route group with shared TopNav layout   | Keeps home page (`app/page.tsx`) unaffected, lets `/courses` + `/my-courses` share chrome. Dashboard stays separate with its own layout (different chrome, auth-gated). |
+| ⭐ Lenis smooth-scroll on `(marketing)` only             | Marketing pages benefit from inertial scroll (Awwwards feel). Admin tables + sticky toolbars don't — `syncTouch: false` also keeps mobile pull-to-refresh intact. |
+| ⭐ Scroll-hide header with 8px hysteresis                | Without the delta threshold, Lenis interpolation jitter + trackpad overshoot would toggle the bar every frame. 8px absorbs it cleanly. |
+| ⭐ `Magnetic` + `AnimatedMenuLink` motion primitives     | Reusable across header, CTAs, and future heading-link reveals. GPU-composited via `useSpring` + `will-change: transform`. |
+| ⭐ `useUIStore` (separate from `useCartStore`)           | Cart state PERSISTS, UI state (menu open) doesn't — splitting stores keeps `persist({ partialize })` minimal and avoids accidental persistence of transient flags. |
+| ⭐ Local debounced search on /courses (not nuqs yet)     | Avoids URL noise while we don't share-link search results. Single `useState` + 300ms timeout. Easy to upgrade to `useQueryStates` when share-links matter. |

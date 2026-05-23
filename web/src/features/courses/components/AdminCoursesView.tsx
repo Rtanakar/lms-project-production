@@ -24,15 +24,9 @@
 
 import Link from "next/link";
 import { Plus, AlertCircle, RotateCcw } from "lucide-react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { PaginationControls } from "@/components/PaginationControls";
-import { STALE_TIME } from "@/config/constants";
-import { useCourseParams } from "../hooks/use-courses-params";
-import { useCoursesSearch } from "../hooks/use-courses-search";
-import { courseKeys } from "../api/course-keys";
-import { fetchCourses } from "../api/courses-api";
-import type { ListCoursesQuery } from "../types";
+import { useCourses } from "../hooks/use-courses";
 import { AdminCourseSearch } from "./AdminCoursesSearch";
 import {
   AdminCourseTable,
@@ -160,30 +154,9 @@ export function AdminCoursesError({
 // data already → no loading state on first visit.
 // ============================================================================
 export function AdminCoursesContent() {
-  const [params, setParams] = useCourseParams();
-  const { searchValue, onSearchChange } = useCoursesSearch({
-    params,
-    setParams,
-  });
-
-  // ─── Build query for API ───
-  // status = "all" → admin sees every status (CSV of all values)
-  // status = specific → pass single value
-  const apiQuery: ListCoursesQuery = {
-    q: params.search || undefined,
-    status:
-      params.status === "all"
-        ? "DRAFT,COMING_SOON,UPCOMING,LIVE,COMPLETED,ARCHIVED"
-        : params.status,
-    level: params.level ?? undefined,
-    sort: params.sort,
-    page: params.page,
-    limit: params.pageSize,
-  };
-
-  // ─── useQuery (non-suspending) + keepPreviousData ───
-  // Same queryKey as server prefetch → cache hit on first render.
-  // On filter/search/page change → previous data stays visible (no flash).
+  // One opinionated hook does it all: URL state + debounced search + query
+  // + filter helpers + pagination helpers. Admin mode (default) honors the
+  // `status` filter so admins can pivot between DRAFT / LIVE / ARCHIVED.
   const {
     data,
     isLoading,
@@ -192,18 +165,22 @@ export function AdminCoursesContent() {
     isError,
     error,
     refetch,
-  } = useQuery({
-    queryKey: courseKeys.list(apiQuery),
-    queryFn: () => fetchCourses(apiQuery),
-    staleTime: STALE_TIME.LIST,
-    placeholderData: keepPreviousData,
-  });
-
-  const items = data?.items ?? [];
-  const pagination = data?.pagination;
-
-  const hasFilters =
-    !!params.search || params.status !== "all" || !!params.level;
+    items,
+    pagination,
+    hasFilters,
+    pageSize,
+    searchValue,
+    onSearchChange,
+    status,
+    level,
+    sort,
+    setStatus,
+    setLevel,
+    setSort,
+    goToPage,
+    goNext,
+    goPrev,
+  } = useCourses();
 
   return (
     <>
@@ -211,12 +188,12 @@ export function AdminCoursesContent() {
       <AdminCourseSearch
         searchValue={searchValue}
         onSearchChange={onSearchChange}
-        status={params.status}
-        onStatusChange={(status) => setParams({ status, page: 1 })}
-        level={params.level}
-        onLevelChange={(level) => setParams({ level, page: 1 })}
-        sort={params.sort}
-        onSortChange={(sort) => setParams({ sort, page: 1 })}
+        status={status}
+        onStatusChange={setStatus}
+        level={level}
+        onLevelChange={setLevel}
+        sort={sort}
+        onSortChange={setSort}
       />
 
       {/* ─── Total count chip — animated pulse while refetching ─── */}
@@ -238,20 +215,22 @@ export function AdminCoursesContent() {
       {/* ─── Table ─────────────────────────────────────────────────────
             Loading rules (Linear/Vercel pattern):
               · isLoading            → no data yet → full skeleton
-              · isPlaceholderData    → showing STALE results while new ones
-                fetch (search/filter changed) → ALSO show skeleton so user
-                doesn't see mismatched rows that don't match their query
-              · isFetching only      → revalidation behind cached data of the
-                SAME query (e.g. window focus) → keep table, just dim it
+              · isPlaceholderData    → STALE results while new ones fetch
+                (search/filter changed) → also skeleton so user doesn't see
+                mismatched rows that don't match their query
+              · isFetching only      → revalidation of SAME query (focus,
+                etc.) → keep table; row-level dim handled inside the table
             ──────────────────────────────────────────────────────────── */}
       {isLoading || isPlaceholderData ? (
-        <AdminCourseTableSkeleton rows={params.pageSize} />
+        <AdminCourseTableSkeleton rows={pageSize} />
       ) : isError && !data ? (
         // Only show full error state when we have NO data to fall back on.
         <AdminCoursesError
           error={error as Error}
           resetErrorBoundary={() => refetch()}
         />
+      ) : items.length === 0 ? (
+        <EmptyState searchTerm={searchValue} />
       ) : (
         <AdminCourseTable
           items={items}
@@ -269,11 +248,21 @@ export function AdminCoursesContent() {
           hasNextPage={pagination.hasNext}
           hasPreviousPage={pagination.hasPrev}
           isFetching={isFetching}
-          onPreviousPage={() => setParams({ page: pagination.page - 1 })}
-          onNextPage={() => setParams({ page: pagination.page + 1 })}
-          onPageChange={(p) => setParams({ page: p })}
+          onPreviousPage={goPrev}
+          onNextPage={goNext}
+          onPageChange={goToPage}
         />
       )}
     </>
+  );
+}
+
+function EmptyState({ searchTerm }: { searchTerm: string }) {
+  return (
+    <div className="flex h-60 items-center justify-center rounded-2xl border border-dashed border-[rgba(255,90,31,0.2)] bg-[rgba(20,12,8,0.3)] text-center text-sm text-white/55">
+      {searchTerm
+        ? `No courses match "${searchTerm}" — try a different search.`
+        : "No courses yet — check back soon."}
+    </div>
   );
 }

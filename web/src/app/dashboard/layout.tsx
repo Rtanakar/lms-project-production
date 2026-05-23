@@ -12,6 +12,7 @@
 
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import UnauthorizedPage from "@/components/UnauthorizedPage";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
@@ -35,6 +36,11 @@ export default async function DashboardLayout({
   const user = session?.user;
 
   if (!user) return <UnauthorizedPage />;
+
+  // STUDENTs don't have a dashboard — bounce to their marketing home.
+  // Gate at layout (before any chrome renders) so child pages can safely
+  // assume the user is ADMIN or INSTRUCTOR.
+  if (user.role === "STUDENT") redirect("/my-courses");
 
   // Sidebar open state persists across reloads via cookie (shadcn convention)
   const cookieStore = await cookies();

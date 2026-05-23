@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
-import type { Role } from "@/lib/helpers/auth-helpers";
+import type { StaffRole } from "@/lib/helpers/auth-helpers";
 
 const ICON_MAP = { Plus, BookOpen, Users, BarChart3, Settings } as const;
 type IconName = keyof typeof ICON_MAP;
@@ -90,36 +90,11 @@ const instructorActions: QuickAction[] = [
   },
 ];
 
-const studentActions: QuickAction[] = [
-  {
-    label: "Browse Courses",
-    description: "Discover new skills",
-    href: "/courses",
-    icon: "BookOpen",
-    accent: "from-[#FF5A1F] to-[#E04A12]",
-  },
-  {
-    label: "My Learning",
-    description: "Continue where you left off",
-    href: "/dashboard/my-courses",
-    icon: "BookOpen",
-    accent: "from-blue-500 to-blue-600",
-  },
-];
-
-function getActionsForRole(role: Role): QuickAction[] {
-  switch (role) {
-    case "ADMIN":
-      return adminActions;
-    case "INSTRUCTOR":
-      return instructorActions;
-    case "STUDENT":
-    default:
-      return studentActions;
-  }
+function getActionsForRole(role: StaffRole): QuickAction[] {
+  return role === "ADMIN" ? adminActions : instructorActions;
 }
 
-export function QuickActions({ role }: { role: Role }) {
+export function QuickActions({ role }: { role: StaffRole }) {
   const actions = getActionsForRole(role);
 
   return (

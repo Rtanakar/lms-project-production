@@ -12,6 +12,11 @@ import { env } from "@/lib/env";
 // Exported for use across the app (sidebar, header, profile dropdown, etc.)
 export type Role = "STUDENT" | "INSTRUCTOR" | "ADMIN";
 
+// Narrow type for components that ONLY render for dashboard users
+// (ADMIN/INSTRUCTOR). The /dashboard layout gates STUDENT out, so any
+// component below the layout can rely on this tighter contract.
+export type StaffRole = "ADMIN" | "INSTRUCTOR";
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -67,15 +72,23 @@ export async function requireAuth(): Promise<ServerSession> {
   return session;
 }
 
+// Role-aware landing — STUDENT has no dashboard, lands on /my-courses
+// (marketing surface). ADMIN/INSTRUCTOR land on /dashboard.
+export function homeForRole(role: Role): string {
+  return role === "STUDENT" ? "/my-courses" : "/dashboard";
+}
+
 export async function requireUnauth(): Promise<void> {
   const session = await getServerSession();
-  if (session?.user) redirect("/dashboard");
+  if (session?.user) redirect(homeForRole(session.user.role));
 }
 
 export async function requireRole(
-  ...allowed: Array<"STUDENT" | "INSTRUCTOR" | "ADMIN">
+  ...allowed: Role[]
 ): Promise<ServerSession> {
   const session = await requireAuth();
-  if (!allowed.includes(session.user.role)) redirect("/dashboard");
+  if (!allowed.includes(session.user.role)) {
+    redirect(homeForRole(session.user.role));
+  }
   return session;
 }

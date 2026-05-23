@@ -48,14 +48,13 @@ import {
   LifeBuoy,
   Sparkles,
   GraduationCap,
-  PlaySquare,
   CreditCard,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { useCurrentUser } from "@/features/auth/hooks/use-current-user";
-import type { AuthUser, Role } from "@/lib/helpers/auth-helpers";
+import type { AuthUser, StaffRole } from "@/lib/helpers/auth-helpers";
 import { cn, getInitials } from "@/lib/utils";
 
 interface NavItem {
@@ -64,15 +63,7 @@ interface NavItem {
   icon: LucideIcon;
 }
 
-// ─── Role-based nav configs ──────────────────────────────────
-const studentNav: NavItem[] = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "My Courses", url: "/dashboard/my-courses", icon: PlaySquare },
-  { title: "Browse", url: "/dashboard/browse", icon: BookOpen },
-  { title: "Certificates", url: "/dashboard/certificates", icon: Award },
-  { title: "Notifications", url: "/dashboard/notifications", icon: Bell },
-];
-
+// ─── Role-based nav configs (ADMIN/INSTRUCTOR only) ──────────
 const instructorNav: NavItem[] = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "My Courses", url: "/dashboard/courses", icon: BookOpen },
@@ -92,16 +83,8 @@ const adminNav: NavItem[] = [
   { title: "Notifications", url: "/dashboard/notifications", icon: Bell },
 ];
 
-function getNavForRole(role: Role): NavItem[] {
-  switch (role) {
-    case "ADMIN":
-      return adminNav;
-    case "INSTRUCTOR":
-      return instructorNav;
-    case "STUDENT":
-    default:
-      return studentNav;
-  }
+function getNavForRole(role: StaffRole): NavItem[] {
+  return role === "ADMIN" ? adminNav : instructorNav;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -130,9 +113,10 @@ export function DashboardSidebar({
   const pathname = usePathname();
   const router = useRouter();
 
-  // Live user — falls back to SSR-passed user if provider not yet hydrated
+  // Live user — falls back to SSR-passed user if provider not yet hydrated.
+  // Layout already redirects STUDENT, so role is always ADMIN/INSTRUCTOR here.
   const liveUser = useCurrentUser() ?? fallbackUser;
-  const role = liveUser.role;
+  const role = liveUser.role as StaffRole;
   const navItems = getNavForRole(role);
 
   const handleSignOut = async () => {
@@ -190,11 +174,7 @@ export function DashboardSidebar({
       <SidebarContent className="gap-0 py-2">
         <SidebarGroup>
           <SidebarGroupLabel className="mb-1 px-3 text-[10px] font-medium uppercase tracking-widest text-white/35">
-            {role === "ADMIN"
-              ? "Administration"
-              : role === "INSTRUCTOR"
-                ? "Teaching"
-                : "Learning"}
+            {role === "ADMIN" ? "Administration" : "Teaching"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>

@@ -61,7 +61,7 @@ export default function SignUpForm() {
     setSocialLoading("github");
     await authClient.signIn.social({
       provider: "github",
-      callbackURL: "/dashboard",
+      callbackURL: "/my-courses",
     });
   };
 
@@ -69,7 +69,7 @@ export default function SignUpForm() {
     setSocialLoading("google");
     await authClient.signIn.social({
       provider: "google",
-      callbackURL: "/dashboard",
+      callbackURL: "/my-courses",
     });
   };
 
@@ -80,14 +80,14 @@ export default function SignUpForm() {
           name: values.name.trim(),
           email: values.email.trim().toLowerCase(),
           password: values.password,
-          callbackURL: "/dashboard",
+          callbackURL: "/my-courses",
         },
         {
           onSuccess: () => {
             toast.success("Account created! Welcome to LMS 🎉");
             // autoSignIn: true on backend → session cookie set
             // verification email sent in background
-            router.push("/dashboard?welcome=true");
+            router.push("/my-courses?welcome=true");
             router.refresh();
           },
           onError: (ctx) => {

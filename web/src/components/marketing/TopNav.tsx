@@ -14,12 +14,13 @@ import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { CartButton } from "@/features/cart/components/CartButton";
 
 const NAV_LINKS = [
   { label: "Home", href: "/" },
   { label: "Courses", href: "/courses" },
+  { label: "My Courses", href: "/my-courses" },
   { label: "Bootcamp", href: "/bootcamp" },
-  { label: "Classroom", href: "/classroom" },
 ];
 
 export default function TopNav() {
@@ -115,9 +116,19 @@ export default function TopNav() {
 
         {/* ─── Right side ─── */}
         <div className="flex items-center gap-3">
+          {/* Cart — visible to both guests and signed-in users.
+              Guests can add items; on checkout they'll be prompted to sign in. */}
+          <CartButton />
+
           {session?.user ? (
+            // STUDENT has no dashboard → land on /my-courses; staff → /dashboard.
             <Link
-              href="/dashboard"
+              href={
+                (session.user as { role?: string }).role === "ADMIN" ||
+                (session.user as { role?: string }).role === "INSTRUCTOR"
+                  ? "/dashboard"
+                  : "/my-courses"
+              }
               className="flex items-center gap-2.5 rounded-full border border-[rgba(255,90,31,0.18)] bg-[rgba(20,12,8,0.55)] py-1.5 pl-1.5 pr-3 text-sm text-white/85 transition-all hover:border-[rgba(255,90,31,0.4)] hover:bg-[rgba(255,90,31,0.08)]"
             >
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-br from-[#FF5A1F] to-[#E04A12] text-xs font-bold uppercase">
